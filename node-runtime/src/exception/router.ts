@@ -1,4 +1,4 @@
-import type { ErrorType } from '../types/step-result.js';
+import type { ErrorType, ActionRef } from '../types/index.js';
 
 export type RecoveryAction =
   | 'retry'
@@ -8,6 +8,39 @@ export type RecoveryAction =
   | 'authoring_patch'
   | 'checkpoint'
   | 'abort';
+
+export interface FailureContext {
+  stepId: string;
+  errorType: ErrorType;
+  url: string;
+  title: string;
+  failedSelector?: string;
+  failedAction?: ActionRef;
+  domSnippet?: string;
+  screenshotPath?: string;
+}
+
+export interface RecoveryPlan {
+  actions: RecoveryAction[];
+  context: FailureContext;
+}
+
+/**
+ * Create a full RecoveryPlan with ordered actions and failure context.
+ * Combines error routing with the failure details needed for each recovery method.
+ */
+export function createRecoveryPlan(
+  errorType: ErrorType,
+  context: Omit<FailureContext, 'errorType'>,
+): RecoveryPlan {
+  return {
+    actions: routeError(errorType),
+    context: {
+      ...context,
+      errorType,
+    },
+  };
+}
 
 /**
  * Route an ErrorType to an ordered list of RecoveryActions.

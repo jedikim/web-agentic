@@ -50,9 +50,27 @@ async def test_plan_patch_schema_validation(client):
 
 
 @pytest.mark.asyncio
-async def test_plan_patch_success(client):
+async def test_plan_patch_success_with_dom_snippet(client):
     payload = {
         "requestId": "req-002",
+        "step_id": "login",
+        "error_type": "TargetNotFound",
+        "url": "https://example.com/login",
+        "dom_snippet": '<button id="sign-in-btn" class="primary">Sign In</button>',
+    }
+    response = await client.post("/plan-patch", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["requestId"] == "req-002"
+    assert len(data["patch"]) == 1
+    assert data["patch"][0]["op"] == "actions.replace"
+    assert "reason" in data and len(data["reason"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_plan_patch_no_context_returns_empty_patch(client):
+    payload = {
+        "requestId": "req-002b",
         "step_id": "login",
         "error_type": "TargetNotFound",
         "url": "https://example.com/login",
@@ -60,9 +78,24 @@ async def test_plan_patch_success(client):
     response = await client.post("/plan-patch", json=payload)
     assert response.status_code == 200
     data = response.json()
-    assert data["requestId"] == "req-002"
+    assert data["requestId"] == "req-002b"
     assert data["patch"] == []
-    assert "manual review" in data["reason"]
+    assert "reason" in data and len(data["reason"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_plan_patch_unknown_error_type(client):
+    payload = {
+        "requestId": "req-002c",
+        "step_id": "captcha",
+        "error_type": "CaptchaOr2FA",
+        "url": "https://example.com",
+    }
+    response = await client.post("/plan-patch", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["patch"] == []
+    assert "No strategy" in data["reason"]
 
 
 @pytest.mark.asyncio

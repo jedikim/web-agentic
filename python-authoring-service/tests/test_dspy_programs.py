@@ -38,15 +38,30 @@ async def test_compile_intent_to_policy_returns_default():
 
 
 @pytest.mark.asyncio
-async def test_patch_planner_returns_empty_patch():
+async def test_patch_planner_generates_patch_for_target_not_found():
     request = PlanPatchRequest(
         requestId="req-200",
         step_id="login",
         error_type="TargetNotFound",
         url="https://example.com/login",
+        dom_snippet='<button id="login-btn">Log In</button>',
     )
     result = await plan_patch_for_failure(request)
     assert result.request_id == "req-200"
+    assert len(result.patch) == 1
+    assert result.patch[0].op == "actions.replace"
+    assert "login" in result.reason
+
+
+@pytest.mark.asyncio
+async def test_patch_planner_returns_empty_when_no_context():
+    request = PlanPatchRequest(
+        requestId="req-201",
+        step_id="login",
+        error_type="TargetNotFound",
+        url="https://example.com/login",
+    )
+    result = await plan_patch_for_failure(request)
+    assert result.request_id == "req-201"
     assert result.patch == []
-    assert "TargetNotFound" in result.reason
     assert "login" in result.reason

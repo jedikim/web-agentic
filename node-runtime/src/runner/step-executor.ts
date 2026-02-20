@@ -8,9 +8,11 @@ import type { BrowserEngine } from '../engines/browser-engine.js';
 import type { HealingMemory } from '../memory/healing-memory.js';
 import type { BudgetGuard } from './budget-guard.js';
 import type { CheckpointHandler } from './checkpoint.js';
+import type { RecoveryPipeline, RecoveryResult } from './recovery-pipeline.js';
 import { validateExpectations } from './validator.js';
 import { interpolate, interpolateStep } from '../recipe/template.js';
 import { classifyError } from '../exception/classifier.js';
+import { createRecoveryPlan } from '../exception/router.js';
 import { PlaywrightFallbackEngine } from '../engines/playwright-fallback.js';
 
 export interface AuthoringClient {
@@ -28,6 +30,8 @@ export interface AuthoringClient {
 }
 
 export class StepExecutor {
+  private recoveryPipeline: RecoveryPipeline | null = null;
+
   constructor(
     private stagehand: BrowserEngine,
     private playwright: BrowserEngine,
@@ -37,9 +41,26 @@ export class StepExecutor {
     private checkpoint: CheckpointHandler,
   ) {}
 
+  /**
+   * Set the recovery pipeline for structured recovery on step failures.
+   * When set, the execute method will use the pipeline instead of inline fallbacks.
+   */
+  setRecoveryPipeline(pipeline: RecoveryPipeline): void {
+    this.recoveryPipeline = pipeline;
+  }
+
+  /**
+   * Get the last recovery result (if any) from the most recent execute call.
+   */
+  get lastRecoveryResult(): RecoveryResult | null {
+    return this._lastRecoveryResult;
+  }
+  private _lastRecoveryResult: RecoveryResult | null = null;
+
   async execute(step: WorkflowStep, context: RunContext): Promise<StepResult> {
     const start = Date.now();
     const resolvedStep = interpolateStep(step, context.vars);
+    this._lastRecoveryResult = null;
 
     try {
       const result = await this.executeOp(resolvedStep, context);
@@ -48,13 +69,31 @@ export class StepExecutor {
       if (result.ok && resolvedStep.expect) {
         const validation = await validateExpectations(resolvedStep.expect, this.stagehand);
         if (!validation.ok) {
-          return {
+          const failResult: StepResult = {
             stepId: step.id,
             ok: false,
             errorType: 'ExpectationFailed',
             message: `Expectations failed: ${validation.failures.map((f) => `${f.expectation.kind}=${f.expectation.value}`).join(', ')}`,
             durationMs,
           };
+
+          // Try recovery pipeline for expectation failure
+          if (this.recoveryPipeline && failResult.errorType) {
+            const recovered = await this.tryRecoveryPipeline(failResult, resolvedStep, context);
+            if (recovered) {
+              return { ...recovered, durationMs: Date.now() - start };
+            }
+          }
+
+          return failResult;
+        }
+      }
+
+      // If step failed and recovery pipeline is available, try it
+      if (!result.ok && result.errorType && this.recoveryPipeline) {
+        const recovered = await this.tryRecoveryPipeline(result, resolvedStep, context);
+        if (recovered) {
+          return { ...recovered, durationMs: Date.now() - start };
         }
       }
 
@@ -65,14 +104,65 @@ export class StepExecutor {
         selector: resolvedStep.targetKey,
         url: await this.stagehand.currentUrl().catch(() => ''),
       });
-      return {
+      const failResult: StepResult = {
         stepId: step.id,
         ok: false,
         errorType,
         message: error instanceof Error ? error.message : String(error),
         durationMs,
       };
+
+      // Try recovery pipeline for caught errors
+      if (this.recoveryPipeline && errorType) {
+        const recovered = await this.tryRecoveryPipeline(failResult, resolvedStep, context);
+        if (recovered) {
+          return { ...recovered, durationMs: Date.now() - start };
+        }
+      }
+
+      return failResult;
     }
+  }
+
+  /**
+   * Attempt recovery using the RecoveryPipeline.
+   * Creates a RecoveryPlan from the error type and context, then runs the pipeline.
+   */
+  private async tryRecoveryPipeline(
+    failResult: StepResult,
+    step: WorkflowStep,
+    context: RunContext,
+  ): Promise<StepResult | null> {
+    if (!this.recoveryPipeline || !failResult.errorType) return null;
+
+    try {
+      const url = await this.stagehand.currentUrl().catch(() => '');
+      const title = await this.stagehand.currentTitle().catch(() => '');
+      const actionEntry = step.targetKey ? context.recipe.actions[step.targetKey] : undefined;
+
+      const plan = createRecoveryPlan(failResult.errorType, {
+        stepId: step.id,
+        url,
+        title,
+        failedSelector: step.targetKey,
+        failedAction: actionEntry?.preferred,
+      });
+
+      const result = await this.recoveryPipeline.recover(plan, context.recipe, context.runId);
+      this._lastRecoveryResult = result;
+
+      if (result.recovered) {
+        return {
+          stepId: step.id,
+          ok: true,
+          message: `Recovered via ${result.method}`,
+        };
+      }
+    } catch {
+      // Recovery pipeline failed entirely
+    }
+
+    return null;
   }
 
   private async executeOp(step: WorkflowStep, context: RunContext): Promise<StepResult> {
