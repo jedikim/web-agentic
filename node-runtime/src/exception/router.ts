@@ -6,6 +6,9 @@ export type RecoveryAction =
   | 'selector_fallback'
   | 'healing_memory'
   | 'authoring_patch'
+  | 'network_parse'
+  | 'cv_coordinate'
+  | 'canvas_llm_fallback'
   | 'checkpoint'
   | 'abort';
 
@@ -90,10 +93,11 @@ export function routeError(errorType: ErrorType): RecoveryAction[] {
       ];
 
     case 'CanvasDetected':
-      // Non-DOM surface: network parse -> CV coordinates -> authoring service (LLM, last resort)
+      // Non-DOM surface: network parse (free) -> CV coordinates (cheap) -> LLM (expensive, last resort)
       return [
-        'observe_refresh',
-        'authoring_patch',
+        'network_parse',
+        'cv_coordinate',
+        'canvas_llm_fallback',
         'checkpoint',
       ];
 

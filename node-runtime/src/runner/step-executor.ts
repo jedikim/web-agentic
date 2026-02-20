@@ -9,6 +9,7 @@ import type { HealingMemory } from '../memory/healing-memory.js';
 import type { BudgetGuard } from './budget-guard.js';
 import type { CheckpointHandler } from './checkpoint.js';
 import type { RecoveryPipeline, RecoveryResult } from './recovery-pipeline.js';
+import type { CanvasDetector, DetectorPage } from '../engines/canvas-detector.js';
 import { validateExpectations } from './validator.js';
 import { interpolate, interpolateStep } from '../recipe/template.js';
 import { classifyError } from '../exception/classifier.js';
@@ -31,6 +32,8 @@ export interface AuthoringClient {
 
 export class StepExecutor {
   private recoveryPipeline: RecoveryPipeline | null = null;
+  private canvasDetector: CanvasDetector | null = null;
+  private detectorPage: DetectorPage | null = null;
 
   constructor(
     private stagehand: BrowserEngine,
@@ -47,6 +50,15 @@ export class StepExecutor {
    */
   setRecoveryPipeline(pipeline: RecoveryPipeline): void {
     this.recoveryPipeline = pipeline;
+  }
+
+  /**
+   * Set the canvas detector for surface type detection during failure analysis.
+   * When set, CanvasDetected errors are detected automatically before routing.
+   */
+  setCanvasDetector(detector: CanvasDetector, page: DetectorPage): void {
+    this.canvasDetector = detector;
+    this.detectorPage = page;
   }
 
   /**
@@ -140,7 +152,26 @@ export class StepExecutor {
       const title = await this.stagehand.currentTitle().catch(() => '');
       const actionEntry = step.targetKey ? context.recipe.actions[step.targetKey] : undefined;
 
-      const plan = createRecoveryPlan(failResult.errorType, {
+      // Canvas detection: check if failure is due to a non-DOM surface
+      let errorType = failResult.errorType;
+      if (
+        this.canvasDetector &&
+        this.detectorPage &&
+        errorType !== 'CanvasDetected' &&
+        errorType !== 'CaptchaOr2FA' &&
+        errorType !== 'AuthoringServiceTimeout'
+      ) {
+        try {
+          const surface = await this.canvasDetector.detect(this.detectorPage, step.targetKey);
+          if (surface.type !== 'standard') {
+            errorType = 'CanvasDetected';
+          }
+        } catch {
+          // Canvas detection failed — use original error type
+        }
+      }
+
+      const plan = createRecoveryPlan(errorType, {
         stepId: step.id,
         url,
         title,

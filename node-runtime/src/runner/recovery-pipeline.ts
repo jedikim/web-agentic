@@ -12,6 +12,8 @@ import type { CheckpointHandler } from './checkpoint.js';
 import type { BrowserEngine } from '../engines/browser-engine.js';
 import type { PlaywrightFallbackEngine } from '../engines/playwright-fallback.js';
 import type { PlanPatchResponse } from '../authoring-client/plan-patch.js';
+import type { NetworkParser, ParsedResponse } from '../engines/network-parser.js';
+import type { CVEngine, CVPage } from '../engines/cv-engine.js';
 
 export interface AuthoringClientForRecovery {
   planPatch(request: {
@@ -55,6 +57,10 @@ export interface RecoveryResult {
  * Tries each recovery action in order until one succeeds or all are exhausted.
  */
 export class RecoveryPipeline {
+  private networkParser: NetworkParser | null = null;
+  private cvEngine: CVEngine | null = null;
+  private cvPage: CVPage | null = null;
+
   constructor(
     private observeRefresher: ObserveRefresher,
     private healingMemory: HealingMemory,
@@ -64,6 +70,20 @@ export class RecoveryPipeline {
     private stagehand: BrowserEngine,
     private playwright: PlaywrightFallbackEngine | null,
   ) {}
+
+  /**
+   * Set the canvas recovery engines (network parser and CV engine).
+   * These are used for CanvasDetected errors in the recovery chain.
+   */
+  setCanvasEngines(
+    networkParser: NetworkParser,
+    cvEngine: CVEngine,
+    cvPage: CVPage,
+  ): void {
+    this.networkParser = networkParser;
+    this.cvEngine = cvEngine;
+    this.cvPage = cvPage;
+  }
 
   /**
    * Execute recovery actions in order until one succeeds.
@@ -114,6 +134,15 @@ export class RecoveryPipeline {
 
       case 'authoring_patch':
         return this.executeAuthoringPatch(context, runId);
+
+      case 'network_parse':
+        return this.executeNetworkParse(context);
+
+      case 'cv_coordinate':
+        return this.executeCVCoordinate(context);
+
+      case 'canvas_llm_fallback':
+        return this.executeCanvasLlmFallback(context, runId);
 
       case 'checkpoint':
         return this.executeCheckpoint(context);
@@ -247,6 +276,111 @@ export class RecoveryPipeline {
       recovered: true,
       patchApplied: patchPayload,
       method: 'authoring_patch',
+    };
+  }
+
+  /**
+   * Network parse: check captured network responses for structured data.
+   * Free (no LLM) — first choice for canvas/non-DOM recovery.
+   */
+  private async executeNetworkParse(
+    context: FailureContext,
+  ): Promise<RecoveryResult> {
+    if (!this.networkParser) {
+      return { recovered: false, method: 'network_parse' };
+    }
+
+    const captured = this.networkParser.getCaptured();
+    if (captured.length === 0) {
+      return { recovered: false, method: 'network_parse' };
+    }
+
+    // Look for JSON responses with useful data
+    const jsonResponses = captured.filter(
+      (r) => r.status >= 200 && r.status < 300 && r.body !== null && typeof r.body === 'object',
+    );
+
+    if (jsonResponses.length > 0) {
+      return { recovered: true, method: 'network_parse' };
+    }
+
+    return { recovered: false, method: 'network_parse' };
+  }
+
+  /**
+   * CV coordinate: take a screenshot and try to locate the target visually.
+   * Cheap (pixel comparison) — second choice for canvas/non-DOM recovery.
+   */
+  private async executeCVCoordinate(
+    context: FailureContext,
+  ): Promise<RecoveryResult> {
+    if (!this.cvEngine || !this.cvPage) {
+      return { recovered: false, method: 'cv_coordinate' };
+    }
+
+    try {
+      const screenshot = await this.stagehand.screenshot();
+      const targetDesc = context.failedSelector ?? context.stepId;
+
+      const match = await this.cvEngine.findByText(screenshot, targetDesc);
+      if (match && match.confidence > 0.3) {
+        await this.cvEngine.clickAtCoordinate(this.cvPage, match.x, match.y);
+        return { recovered: true, method: 'cv_coordinate' };
+      }
+    } catch {
+      // CV failed — fall through
+    }
+
+    return { recovered: false, method: 'cv_coordinate' };
+  }
+
+  /**
+   * Canvas LLM fallback: use authoring service as last resort for canvas surfaces.
+   * Expensive (LLM call) — only used when network parse and CV both fail.
+   */
+  private async executeCanvasLlmFallback(
+    context: FailureContext,
+    runId: string,
+  ): Promise<RecoveryResult> {
+    if (!this.authoringClient) {
+      return { recovered: false, method: 'canvas_llm_fallback' };
+    }
+
+    if (!this.budgetGuard.canCallAuthoring()) {
+      return { recovered: false, method: 'canvas_llm_fallback' };
+    }
+
+    this.budgetGuard.recordAuthoringCall();
+
+    let screenshotBase64: string | undefined;
+    try {
+      const screenshot = await this.stagehand.screenshot();
+      screenshotBase64 = screenshot.toString('base64');
+    } catch {
+      // Continue without screenshot
+    }
+
+    const response = await this.authoringClient.planPatch({
+      requestId: `${runId}-${context.stepId}-canvas-fallback`,
+      stepId: context.stepId,
+      errorType: context.errorType,
+      url: context.url,
+      title: context.title,
+      failedSelector: context.failedSelector,
+      failedAction: context.failedAction as unknown as Record<string, unknown>,
+      domSnippet: context.domSnippet,
+      screenshotBase64,
+    });
+
+    const patchPayload: PatchPayload = {
+      patch: response.patch as PatchPayload['patch'],
+      reason: response.reason,
+    };
+
+    return {
+      recovered: true,
+      patchApplied: patchPayload,
+      method: 'canvas_llm_fallback',
     };
   }
 

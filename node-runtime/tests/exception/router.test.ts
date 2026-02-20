@@ -42,12 +42,19 @@ describe('routeError', () => {
     expect(actions).toContain('authoring_patch');
   });
 
-  it('routes CanvasDetected without retry (non-DOM)', () => {
+  it('routes CanvasDetected through canvas chain: network_parse -> cv_coordinate -> canvas_llm_fallback', () => {
     const actions = routeError('CanvasDetected');
     expect(actions).not.toContain('retry');
-    expect(actions).toContain('observe_refresh');
-    expect(actions).toContain('authoring_patch');
+    expect(actions).toContain('network_parse');
+    expect(actions).toContain('cv_coordinate');
+    expect(actions).toContain('canvas_llm_fallback');
     expect(actions).toContain('checkpoint');
+    // Order: network_parse (free) -> cv_coordinate (cheap) -> canvas_llm_fallback (expensive)
+    const npIdx = actions.indexOf('network_parse');
+    const cvIdx = actions.indexOf('cv_coordinate');
+    const llmIdx = actions.indexOf('canvas_llm_fallback');
+    expect(npIdx).toBeLessThan(cvIdx);
+    expect(cvIdx).toBeLessThan(llmIdx);
   });
 
   it('routes CaptchaOr2FA directly to checkpoint and abort only', () => {

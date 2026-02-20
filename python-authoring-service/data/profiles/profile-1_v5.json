@@ -1,0 +1,37 @@
+{
+  "key": "value",
+  "best_recipe": {
+    "workflow": {
+      "id": "example.com_flow",
+      "steps": [
+        {
+          "id": "open",
+          "op": "goto",
+          "args": {
+            "url": "https://example.com"
+          },
+          "expect": [
+            {
+              "kind": "url_contains",
+              "value": "example.com"
+            }
+          ]
+        },
+        {
+          "id": "checkpoint_end",
+          "op": "checkpoint",
+          "args": {
+            "message": "Completed: test. Verify results?"
+          }
+        }
+      ]
+    },
+    "actions": {},
+    "selectors": {},
+    "policies": {},
+    "fingerprints": {}
+  },
+  "best_score": 0.8939999999999999,
+  "version": 5,
+  "promoted": true
+}
