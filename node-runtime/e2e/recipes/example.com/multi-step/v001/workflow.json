@@ -1,0 +1,67 @@
+{
+  "id": "example_multi",
+  "version": "v001",
+  "steps": [
+    {
+      "id": "open",
+      "op": "goto",
+      "args": {
+        "url": "https://example.com"
+      }
+    },
+    {
+      "id": "checkpoint_1",
+      "op": "checkpoint",
+      "args": {
+        "message": "Page loaded check"
+      },
+      "expect": [
+        {
+          "kind": "title_contains",
+          "value": "Example"
+        },
+        {
+          "kind": "url_contains",
+          "value": "example.com"
+        }
+      ]
+    },
+    {
+      "id": "extract_content",
+      "op": "extract",
+      "args": {
+        "schema": {
+          "type": "object"
+        },
+        "into": "pageContent"
+      }
+    },
+    {
+      "id": "wait_step",
+      "op": "wait",
+      "args": {
+        "ms": 500
+      }
+    },
+    {
+      "id": "checkpoint_2",
+      "op": "checkpoint",
+      "args": {
+        "message": "Pre-navigation check"
+      }
+    },
+    {
+      "id": "navigate_link",
+      "op": "act_cached",
+      "targetKey": "more_info.link",
+      "onFail": "fallback"
+    },
+    {
+      "id": "checkpoint_final",
+      "op": "checkpoint",
+      "args": {
+        "message": "Post-navigation check"
+      }
+    }
+  ]
+}

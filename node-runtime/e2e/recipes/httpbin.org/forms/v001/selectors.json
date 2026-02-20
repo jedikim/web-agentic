@@ -1,0 +1,24 @@
+{
+  "customer.name": {
+    "primary": "input[name=\"custname\"]",
+    "fallbacks": [
+      "input[type=\"text\"]"
+    ],
+    "strategy": "css"
+  },
+  "pizza.size": {
+    "primary": "input[name=\"size\"][value=\"medium\"]",
+    "fallbacks": [
+      "input[name=\"size\"]"
+    ],
+    "strategy": "css"
+  },
+  "submit.button": {
+    "primary": "button",
+    "fallbacks": [
+      "button[type=\"submit\"]",
+      "input[type=\"submit\"]"
+    ],
+    "strategy": "css"
+  }
+}

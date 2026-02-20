@@ -1,0 +1,34 @@
+{
+  "customer.name": {
+    "instruction": "fill in the customer name field",
+    "preferred": {
+      "selector": "input[name=\"custname\"]",
+      "description": "Customer name input",
+      "method": "fill",
+      "arguments": [
+        "E2E Test User"
+      ]
+    },
+    "observedAt": "2026-02-21T00:00:00Z"
+  },
+  "pizza.size": {
+    "instruction": "select pizza size",
+    "preferred": {
+      "selector": "input[name=\"size\"][value=\"medium\"]",
+      "description": "Medium pizza size radio",
+      "method": "click",
+      "arguments": []
+    },
+    "observedAt": "2026-02-21T00:00:00Z"
+  },
+  "submit.button": {
+    "instruction": "submit the form",
+    "preferred": {
+      "selector": "button",
+      "description": "Submit order button",
+      "method": "click",
+      "arguments": []
+    },
+    "observedAt": "2026-02-21T00:00:00Z"
+  }
+}

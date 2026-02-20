@@ -22,13 +22,16 @@ Operational web automation platform built with a deterministic-first architectur
 | Phase 3 | DSL Authoring Auto-Improve | COMPLETE | +169 |
 | Phase 4 | Special Surface Handling | COMPLETE | +93 |
 | Phase 5 | OSS Pattern Hardening | COMPLETE | +119 |
-| **Total** | | **ALL COMPLETE** | **686** |
+| E2E Testing | Real Browser + Integration | COMPLETE | +18 |
+| **Total** | | **ALL COMPLETE** | **686 unit + 18 E2E** |
 
 ---
 
 ## Git History
 
 ```
+<latest>  test: add E2E testing infrastructure and fix 4 bugs found during real browser testing
+c6782c9d docs: add full implementation report for Phase 1-5
 f2f4feb4 feat: implement Phase 4 (Special Surfaces) and Phase 5 (OSS Hardening)
 73adea58 feat: implement Phase 2 (Patch Recovery) and Phase 3 (DSL Authoring)
 a54a8f12 feat: implement Phase 1 Deterministic Core MVP
@@ -212,6 +215,47 @@ Node Runtime (Execution)          Python Authoring Service (Generation)
 | Python Storage | 2 | 24 |
 | **Python Total** | **11** | **185** |
 | **Grand Total** | **55** | **686** |
+
+---
+
+## E2E Testing Results
+
+Real end-to-end testing was performed against live websites using headless Chromium (Playwright). This testing phase discovered and fixed 4 bugs.
+
+### Browser E2E Tests (5/5 passed)
+
+| Test | Target | Duration | Result |
+|------|--------|----------|--------|
+| Basic navigation | example.com → IANA | 4.9s | PASS |
+| Broken selector fallback | example.com (intentionally broken selector) | 62.2s | PASS (ladder recovered) |
+| Form interaction | httpbin.org/forms/post | 2.6s | PASS |
+| Multi-step extraction | example.com (navigate + extract + wait) | 4.6s | PASS |
+| Total failure recovery | example.com (all selectors broken) | 120.6s | PASS (checkpoint recovery) |
+
+### Node ↔ Python Integration Tests (13/13 passed)
+
+- Compile intent endpoint: request/response round-trip
+- Plan patch endpoint: 4 error types × strategy selection
+- Optimize profile endpoint: GEPA loop execution
+- Profiles endpoint: CRUD operations
+- Error handling: timeout, invalid input, schema validation
+
+### Bugs Found and Fixed
+
+1. **Zod `.optional()` vs Python `null`** — Python Pydantic serializes `None` as JSON `null`, but Zod `.optional()` only accepts `undefined`. Fixed by changing to `.nullable().optional()` in 4 schema files.
+
+2. **Preflight fingerprint on fresh page** — `preflight()` called `currentUrl()` before the first `goto`, URL is `about:blank`, fails fingerprint check. Fixed by skipping URL fingerprint checks when `hasNavigated` is false.
+
+3. **`healingMemory.record()` wrong arity** — Phase 5 enhanced HealingMemory to require evidence (4 params), but two call sites in step-executor and recovery-pipeline still used old 3-param signature. Fixed with proper HealingEvidence objects.
+
+4. **Stale example.com selectors** — example.com changed link text from "More information..." to "Learn more" and URL from `www.iana.org` to `iana.org`. Updated recipe selectors and actions to match.
+
+### Test Infrastructure
+
+- `node-runtime/e2e/run-pipeline.ts` — Full browser E2E (5 scenarios with screenshots)
+- `node-runtime/e2e/run-integration.ts` — Node ↔ Python HTTP integration (13 tests)
+- `node-runtime/e2e/recipes/` — Test recipes for example.com (4 variants) and httpbin.org (1 form test)
+- Screenshots verified: IANA navigation, httpbin JSON response with submitted form data, multi-step workflow
 
 ---
 

@@ -1,0 +1,32 @@
+{
+  "id": "example_broken",
+  "version": "v001",
+  "steps": [
+    {
+      "id": "open",
+      "op": "goto",
+      "args": {
+        "url": "https://example.com"
+      }
+    },
+    {
+      "id": "verify_loaded",
+      "op": "checkpoint",
+      "args": {
+        "message": "Verify example.com loaded"
+      },
+      "expect": [
+        {
+          "kind": "title_contains",
+          "value": "Example"
+        }
+      ]
+    },
+    {
+      "id": "click_broken",
+      "op": "act_cached",
+      "targetKey": "broken.link",
+      "onFail": "fallback"
+    }
+  ]
+}

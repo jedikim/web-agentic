@@ -1,0 +1,12 @@
+{
+  "more_info.link": {
+    "instruction": "find the Learn more link",
+    "preferred": {
+      "selector": "a[href='https://iana.org/domains/example']",
+      "description": "Learn more link",
+      "method": "click",
+      "arguments": []
+    },
+    "observedAt": "2026-02-21T00:00:00Z"
+  }
+}

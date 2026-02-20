@@ -9,8 +9,8 @@ export const PatchOpSchema = z.object({
     'workflow.update_expect',
     'policies.update',
   ]),
-  key: z.string().optional(),
-  step: z.string().optional(),
+  key: z.string().nullable().optional(),
+  step: z.string().nullable().optional(),
   value: z.unknown(),
 });
 

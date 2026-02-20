@@ -189,7 +189,15 @@ export class RecoveryPipeline {
       const ok = await this.stagehand.act(refreshed);
       if (ok) {
         // Record in healing memory for future use
-        await this.healingMemory.record(targetKey, refreshed, context.url);
+        await this.healingMemory.record(targetKey, refreshed, context.url, {
+          originalSelector: context.failedSelector ?? '',
+          healedSelector: refreshed.selector,
+          domContext: '',
+          pageTitle: context.title,
+          pageUrl: context.url,
+          method: 'observe_refresh',
+          timestamp: new Date().toISOString(),
+        });
         return { recovered: true, action: refreshed, method: 'observe_refresh' };
       }
     }

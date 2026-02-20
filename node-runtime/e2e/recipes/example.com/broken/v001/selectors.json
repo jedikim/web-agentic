@@ -1,0 +1,9 @@
+{
+  "broken.link": {
+    "primary": "#this-does-not-exist-at-all",
+    "fallbacks": [
+      "a[href=\"https://iana.org/domains/example\"]"
+    ],
+    "strategy": "css"
+  }
+}

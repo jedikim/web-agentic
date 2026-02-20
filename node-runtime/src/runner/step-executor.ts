@@ -282,7 +282,15 @@ export class StepExecutor {
           if (ok) {
             // Record success for healing memory
             const url = await this.stagehand.currentUrl();
-            await this.healingMemory.record(targetKey, candidates[0], url);
+            await this.healingMemory.record(targetKey, candidates[0], url, {
+              originalSelector: actionEntry?.preferred?.selector ?? '',
+              healedSelector: candidates[0].selector,
+              domContext: '',
+              pageTitle: await this.stagehand.currentTitle().catch(() => ''),
+              pageUrl: url,
+              method: 'observe_refresh',
+              timestamp: new Date().toISOString(),
+            });
             return { stepId: step.id, ok: true };
           }
         }

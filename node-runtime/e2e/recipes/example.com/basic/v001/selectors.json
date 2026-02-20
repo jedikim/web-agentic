@@ -1,0 +1,10 @@
+{
+  "more_info.link": {
+    "primary": "a[href='https://iana.org/domains/example']",
+    "fallbacks": [
+      "a:has-text('Learn more')",
+      "body > div > p:last-child > a"
+    ],
+    "strategy": "css"
+  }
+}

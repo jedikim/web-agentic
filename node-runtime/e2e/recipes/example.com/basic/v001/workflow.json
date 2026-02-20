@@ -1,0 +1,37 @@
+{
+  "id": "example_basic",
+  "version": "v001",
+  "steps": [
+    {
+      "id": "open",
+      "op": "goto",
+      "args": { "url": "https://example.com" }
+    },
+    {
+      "id": "verify_page",
+      "op": "checkpoint",
+      "args": { "message": "Verify example.com loaded correctly" },
+      "expect": [
+        { "kind": "title_contains", "value": "Example" },
+        { "kind": "url_contains", "value": "example.com" }
+      ]
+    },
+    {
+      "id": "click_more_info",
+      "op": "act_cached",
+      "targetKey": "more_info.link",
+      "expect": [
+        { "kind": "url_contains", "value": "iana.org" }
+      ],
+      "onFail": "fallback"
+    },
+    {
+      "id": "verify_navigation",
+      "op": "checkpoint",
+      "args": { "message": "Verify navigation to IANA" },
+      "expect": [
+        { "kind": "url_contains", "value": "iana.org" }
+      ]
+    }
+  ]
+}

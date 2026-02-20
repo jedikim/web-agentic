@@ -129,8 +129,12 @@ export class WorkflowRunner {
     try {
       const url = await this.stagehand.currentUrl();
 
+      // Skip URL-based fingerprint checks if the page hasn't navigated yet
+      // (e.g., about:blank before the first goto step)
+      const hasNavigated = url && url !== 'about:blank' && url !== '';
+
       for (const [_key, fp] of Object.entries(fingerprints)) {
-        if (!this.checkFingerprint(fp, url)) {
+        if (!this.checkFingerprint(fp, hasNavigated ? url : '', hasNavigated)) {
           return false;
         }
       }
@@ -141,8 +145,10 @@ export class WorkflowRunner {
     }
   }
 
-  private checkFingerprint(fp: Fingerprint, currentUrl: string): boolean {
-    if (fp.urlContains && !currentUrl.includes(fp.urlContains)) {
+  private checkFingerprint(fp: Fingerprint, currentUrl: string, hasNavigated: boolean): boolean {
+    // Only check URL fingerprints if the browser has actually navigated to a page.
+    // Before the first goto step, the URL is about:blank and fingerprints should be skipped.
+    if (fp.urlContains && hasNavigated && !currentUrl.includes(fp.urlContains)) {
       return false;
     }
     // mustText and mustSelectors require page content - skipped in preflight

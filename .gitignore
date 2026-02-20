@@ -8,3 +8,9 @@ __pycache__/
 *.tsbuildinfo
 .env
 .env.*
+
+# E2E run artifacts (screenshots, logs, metrics)
+node-runtime/e2e/runs/
+
+# Python test data artifacts
+python-authoring-service/data/

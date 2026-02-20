@@ -1,0 +1,10 @@
+{
+  "nonexistent.element": {
+    "primary": "#completely-fake-element-12345",
+    "fallbacks": [
+      "#also-fake-67890",
+      ".another-fake-class-abc"
+    ],
+    "strategy": "css"
+  }
+}

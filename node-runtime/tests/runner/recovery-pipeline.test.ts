@@ -261,6 +261,13 @@ describe('RecoveryPipeline', () => {
         'login.submit',
         newAction,
         'https://example.com/login',
+        expect.objectContaining({
+          originalSelector: 'login.submit',
+          healedSelector: '#new-btn',
+          method: 'observe_refresh',
+          pageTitle: 'Login Page',
+          pageUrl: 'https://example.com/login',
+        }),
       );
     });
   });

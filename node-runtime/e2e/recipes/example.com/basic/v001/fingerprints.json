@@ -1,0 +1,6 @@
+{
+  "example_main": {
+    "mustText": ["Example Domain"],
+    "urlContains": "example.com"
+  }
+}

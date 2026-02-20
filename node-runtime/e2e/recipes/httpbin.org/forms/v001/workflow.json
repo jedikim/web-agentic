@@ -1,0 +1,51 @@
+{
+  "id": "httpbin_forms",
+  "version": "v001",
+  "steps": [
+    {
+      "id": "open_httpbin",
+      "op": "goto",
+      "args": {
+        "url": "https://httpbin.org/forms/post"
+      }
+    },
+    {
+      "id": "verify_form",
+      "op": "checkpoint",
+      "args": {
+        "message": "Verify httpbin form loaded"
+      },
+      "expect": [
+        {
+          "kind": "url_contains",
+          "value": "httpbin.org"
+        }
+      ]
+    },
+    {
+      "id": "fill_customer",
+      "op": "act_cached",
+      "targetKey": "customer.name",
+      "onFail": "fallback"
+    },
+    {
+      "id": "fill_size",
+      "op": "act_cached",
+      "targetKey": "pizza.size",
+      "onFail": "fallback"
+    },
+    {
+      "id": "submit_form",
+      "op": "act_cached",
+      "targetKey": "submit.button",
+      "onFail": "fallback"
+    },
+    {
+      "id": "verify_submit",
+      "op": "checkpoint",
+      "args": {
+        "message": "Verify form submitted"
+      }
+    }
+  ]
+}

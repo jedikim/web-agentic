@@ -1,0 +1,19 @@
+{
+  "id": "example_failure",
+  "version": "v001",
+  "steps": [
+    {
+      "id": "open",
+      "op": "goto",
+      "args": {
+        "url": "https://example.com"
+      }
+    },
+    {
+      "id": "click_nonexistent",
+      "op": "act_cached",
+      "targetKey": "nonexistent.element",
+      "onFail": "fallback"
+    }
+  ]
+}

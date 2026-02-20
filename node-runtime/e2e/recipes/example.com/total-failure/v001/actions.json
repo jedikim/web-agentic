@@ -1,0 +1,12 @@
+{
+  "nonexistent.element": {
+    "instruction": "click a nonexistent button",
+    "preferred": {
+      "selector": "#completely-fake-element-12345",
+      "description": "Nonexistent element",
+      "method": "click",
+      "arguments": []
+    },
+    "observedAt": "2026-02-21T00:00:00Z"
+  }
+}

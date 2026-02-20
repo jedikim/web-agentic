@@ -1,0 +1,12 @@
+{
+  "broken.link": {
+    "instruction": "find the More information link",
+    "preferred": {
+      "selector": "#this-does-not-exist-at-all",
+      "description": "Broken selector",
+      "method": "click",
+      "arguments": []
+    },
+    "observedAt": "2026-02-21T00:00:00Z"
+  }
+}
