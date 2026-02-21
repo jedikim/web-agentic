@@ -20,15 +20,21 @@ export function AiChatPanel() {
   const [isLoading, setIsLoading] = useState(false);
   const [serviceOnline, setServiceOnline] = useState<boolean | null>(null);
   const [llmModel, setLlmModel] = useState<string | null>(null);
+  const [llmConfigured, setLlmConfigured] = useState<boolean>(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const importRecipe = useRecipeStore((s) => s.importRecipe);
 
-  // Check service health on mount
+  // Check service health and LLM config on mount + poll for config changes
   useEffect(() => {
-    healthCheck().then(setServiceOnline);
-    getLlmSettings().then(s => setLlmModel(s.model)).catch(() => {});
+    const checkStatus = () => {
+      healthCheck().then(setServiceOnline);
+      getLlmSettings().then(s => { setLlmModel(s.model); setLlmConfigured(s.isConfigured); }).catch(() => {});
+    };
+    checkStatus();
+    const interval = setInterval(checkStatus, 3000);
+    return () => clearInterval(interval);
   }, []);
 
   // Auto-scroll to bottom
@@ -130,14 +136,14 @@ export function AiChatPanel() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Describe your automation... (Enter to send)"
+          placeholder={llmConfigured ? 'Describe your automation... (Enter to send)' : 'Configure LLM API key first (click LLM Settings)'}
           rows={3}
-          disabled={isLoading}
+          disabled={isLoading || !llmConfigured}
         />
         <button
           className="chat-send-btn"
           onClick={handleSubmit}
-          disabled={isLoading || !input.trim()}
+          disabled={isLoading || !input.trim() || !llmConfigured}
         >
           {isLoading ? '...' : 'Send'}
         </button>

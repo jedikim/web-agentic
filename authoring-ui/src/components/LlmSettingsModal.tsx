@@ -18,9 +18,10 @@ interface Props {
   open: boolean;
   onClose: () => void;
   onConfigured: (settings: LlmSettings) => void;
+  required?: boolean;
 }
 
-export function LlmSettingsModal({ open, onClose, onConfigured }: Props) {
+export function LlmSettingsModal({ open, onClose, onConfigured, required }: Props) {
   const [openaiKey, setOpenaiKey] = useState('');
   const [geminiKey, setGeminiKey] = useState('');
   const [selectedModel, setSelectedModel] = useState('openai/gpt-4o');
@@ -50,7 +51,6 @@ export function LlmSettingsModal({ open, onClose, onConfigured }: Props) {
       if (result.isConfigured) {
         setOpenaiKey('');
         setGeminiKey('');
-        onClose();
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save');
@@ -62,14 +62,19 @@ export function LlmSettingsModal({ open, onClose, onConfigured }: Props) {
   if (!open) return null;
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onClick={required ? undefined : onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <span className="modal-title">LLM Settings</span>
-          <button className="modal-close" onClick={onClose}>&times;</button>
+          <span className="modal-title">{required ? 'LLM Setup Required' : 'LLM Settings'}</span>
+          {!required && <button className="modal-close" onClick={onClose}>&times;</button>}
         </div>
 
         <div className="modal-body">
+          {required && !currentSettings?.isConfigured && (
+            <div className="settings-status settings-status-required">
+              Please enter at least one API key to use AI recipe generation.
+            </div>
+          )}
           {currentSettings?.isConfigured && (
             <div className="settings-status settings-status-ok">
               Active: {currentSettings.model}
@@ -128,7 +133,7 @@ export function LlmSettingsModal({ open, onClose, onConfigured }: Props) {
         </div>
 
         <div className="modal-footer">
-          <button className="toolbar-btn" onClick={onClose}>Cancel</button>
+          {!required && <button className="toolbar-btn" onClick={onClose}>Cancel</button>}
           <button
             className="chat-send-btn"
             onClick={handleSave}

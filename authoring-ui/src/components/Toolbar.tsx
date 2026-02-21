@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { useRecipeStore } from '../store/recipeStore.ts';
 import { useValidation } from '../hooks/useValidation.ts';
 import { importFromFiles } from '../utils/importRecipe.ts';
@@ -6,7 +6,7 @@ import { exportRecipeZip } from '../utils/exportRecipe.ts';
 import { nodeColors, nodeLabels } from '../nodes/nodeTypes.ts';
 import type { WorkflowStep } from '../validation/schemas.ts';
 import { LlmSettingsModal } from './LlmSettingsModal.tsx';
-import type { LlmSettings } from '../utils/authoringClient.ts';
+import { getLlmSettings, type LlmSettings } from '../utils/authoringClient.ts';
 
 const STEP_TYPES = ['goto', 'act_cached', 'checkpoint', 'extract', 'wait'] as const;
 
@@ -43,6 +43,22 @@ export function Toolbar() {
   const { isValid, errorCount } = useValidation();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [llmSettings, setLlmSettings] = useState<LlmSettings | null>(null);
+  const [checkedOnMount, setCheckedOnMount] = useState(false);
+
+  // Check LLM settings on mount — auto-open modal if not configured
+  useEffect(() => {
+    getLlmSettings()
+      .then((s) => {
+        setLlmSettings(s);
+        if (!s.isConfigured) setSettingsOpen(true);
+        setCheckedOnMount(true);
+      })
+      .catch(() => {
+        // Service offline — still open modal so user knows they need to configure
+        setSettingsOpen(true);
+        setCheckedOnMount(true);
+      });
+  }, []);
 
   const handleAddStep = (op: WorkflowStep['op']) => {
     addStep(createDefaultStep(op));
@@ -118,8 +134,9 @@ export function Toolbar() {
       </div>
       <LlmSettingsModal
         open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        onConfigured={setLlmSettings}
+        onClose={() => { if (llmSettings?.isConfigured) setSettingsOpen(false); }}
+        onConfigured={(s) => { setLlmSettings(s); if (s.isConfigured) setSettingsOpen(false); }}
+        required={!llmSettings?.isConfigured}
       />
     </header>
   );

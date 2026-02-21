@@ -747,3 +747,9 @@ body {
   color: var(--success);
   border: 1px solid rgba(16, 185, 129, 0.2);
 }
+
+.settings-status-required {
+  background: rgba(204, 167, 0, 0.1);
+  color: var(--warning);
+  border: 1px solid rgba(204, 167, 0, 0.2);
+}
