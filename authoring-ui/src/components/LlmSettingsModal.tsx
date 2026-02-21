@@ -3,14 +3,17 @@ import { getLlmSettings, setLlmSettings, type LlmSettings, type LlmSettingsReque
 
 const MODELS = {
   openai: [
-    { id: 'openai/gpt-4o', name: 'GPT-4o', desc: 'Flagship multimodal' },
-    { id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini', desc: 'Fast and affordable' },
-    { id: 'openai/o3-mini', name: 'o3-mini', desc: 'Reasoning model' },
+    { id: 'openai/gpt-5.2-codex', name: 'GPT-5.2 Codex', desc: 'Latest coding model' },
+    { id: 'openai/gpt-5.2', name: 'GPT-5.2', desc: 'Flagship model' },
+    { id: 'openai/gpt-5.2-pro', name: 'GPT-5.2 Pro', desc: 'Advanced reasoning' },
+    { id: 'openai/o4-mini', name: 'o4-mini', desc: 'Fast reasoning' },
+    { id: 'openai/gpt-4o', name: 'GPT-4o', desc: 'Stable multimodal' },
   ],
   gemini: [
+    { id: 'gemini/gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro', desc: 'Latest preview' },
+    { id: 'gemini/gemini-3-pro-preview', name: 'Gemini 3 Pro', desc: 'Stable preview' },
+    { id: 'gemini/gemini-2.5-pro', name: 'Gemini 2.5 Pro', desc: 'Production quality' },
     { id: 'gemini/gemini-2.5-flash', name: 'Gemini 2.5 Flash', desc: 'Fastest' },
-    { id: 'gemini/gemini-2.0-flash', name: 'Gemini 2.0 Flash', desc: 'Stable' },
-    { id: 'gemini/gemini-2.5-pro', name: 'Gemini 2.5 Pro', desc: 'Best quality' },
   ],
 };
 
@@ -24,7 +27,7 @@ interface Props {
 export function LlmSettingsModal({ open, onClose, onConfigured, required }: Props) {
   const [openaiKey, setOpenaiKey] = useState('');
   const [geminiKey, setGeminiKey] = useState('');
-  const [selectedModel, setSelectedModel] = useState('openai/gpt-4o');
+  const [selectedModel, setSelectedModel] = useState('openai/gpt-5.2-codex');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentSettings, setCurrentSettings] = useState<LlmSettings | null>(null);

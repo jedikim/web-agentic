@@ -15,14 +15,17 @@ logger = logging.getLogger(__name__)
 
 AVAILABLE_MODELS = {
     "openai": [
-        {"id": "openai/gpt-4o", "name": "GPT-4o", "description": "Flagship multimodal model"},
-        {"id": "openai/gpt-4o-mini", "name": "GPT-4o Mini", "description": "Fast and affordable"},
-        {"id": "openai/o3-mini", "name": "o3-mini", "description": "Reasoning model"},
+        {"id": "openai/gpt-5.2-codex", "name": "GPT-5.2 Codex", "description": "Latest coding model"},
+        {"id": "openai/gpt-5.2", "name": "GPT-5.2", "description": "Flagship model"},
+        {"id": "openai/gpt-5.2-pro", "name": "GPT-5.2 Pro", "description": "Advanced reasoning"},
+        {"id": "openai/o4-mini", "name": "o4-mini", "description": "Fast reasoning"},
+        {"id": "openai/gpt-4o", "name": "GPT-4o", "description": "Stable multimodal"},
     ],
     "gemini": [
-        {"id": "gemini/gemini-2.5-flash", "name": "Gemini 2.5 Flash", "description": "Fastest Gemini"},
-        {"id": "gemini/gemini-2.0-flash", "name": "Gemini 2.0 Flash", "description": "Stable and fast"},
-        {"id": "gemini/gemini-2.5-pro", "name": "Gemini 2.5 Pro", "description": "Best quality"},
+        {"id": "gemini/gemini-3.1-pro-preview", "name": "Gemini 3.1 Pro", "description": "Latest preview"},
+        {"id": "gemini/gemini-3-pro-preview", "name": "Gemini 3 Pro", "description": "Stable preview"},
+        {"id": "gemini/gemini-2.5-pro", "name": "Gemini 2.5 Pro", "description": "Production quality"},
+        {"id": "gemini/gemini-2.5-flash", "name": "Gemini 2.5 Flash", "description": "Fastest"},
     ],
 }
 
@@ -88,9 +91,9 @@ def configure_llm(
     if model:
         selected_model = model
     elif _config.openai_api_key:
-        selected_model = "openai/gpt-4o"
+        selected_model = "openai/gpt-5.2-codex"
     elif _config.gemini_api_key:
-        selected_model = "gemini/gemini-2.5-flash"
+        selected_model = "gemini/gemini-3.1-pro-preview"
     else:
         # No keys, unconfigure
         _config.model = None
