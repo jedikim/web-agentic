@@ -15,5 +15,8 @@ node-runtime/e2e/runs/
 # Python test data artifacts
 python-authoring-service/data/
 
+# Git worktrees
+.worktrees/
+
 # Authoring UI
 authoring-ui/node_modules/
