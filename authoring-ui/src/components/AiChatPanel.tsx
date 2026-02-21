@@ -8,14 +8,32 @@ interface ChatMessage {
   timestamp: number;
 }
 
+const STORAGE_KEY = 'ai-chat-history';
+const SYSTEM_MSG: ChatMessage = {
+  role: 'system',
+  content: 'Describe the web automation you want to create.\nExample: "Go to amazon.com, search for laptop, click the first result, extract the price"',
+  timestamp: 0,
+};
+
+function loadHistory(): ChatMessage[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as ChatMessage[];
+      if (parsed.length > 0) return [SYSTEM_MSG, ...parsed];
+    }
+  } catch { /* ignore */ }
+  return [SYSTEM_MSG];
+}
+
+function saveHistory(messages: ChatMessage[]) {
+  // Save only user/assistant messages (skip system)
+  const toSave = messages.filter((m) => m.role !== 'system');
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+}
+
 export function AiChatPanel() {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      role: 'system',
-      content: 'Describe the web automation you want to create.\nExample: "Go to amazon.com, search for laptop, click the first result, extract the price"',
-      timestamp: Date.now(),
-    },
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>(loadHistory);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [serviceOnline, setServiceOnline] = useState<boolean | null>(null);
@@ -37,9 +55,10 @@ export function AiChatPanel() {
     return () => clearInterval(interval);
   }, []);
 
-  // Auto-scroll to bottom
+  // Auto-scroll + persist to localStorage
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    saveHistory(messages);
   }, [messages]);
 
   const handleSubmit = useCallback(async () => {
