@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRecipeStore } from '../store/recipeStore.ts';
-import { compileIntent, healthCheck } from '../utils/authoringClient.ts';
+import { compileIntent, healthCheck, getLlmSettings } from '../utils/authoringClient.ts';
 
 interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
@@ -19,6 +19,7 @@ export function AiChatPanel() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [serviceOnline, setServiceOnline] = useState<boolean | null>(null);
+  const [llmModel, setLlmModel] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -27,6 +28,7 @@ export function AiChatPanel() {
   // Check service health on mount
   useEffect(() => {
     healthCheck().then(setServiceOnline);
+    getLlmSettings().then(s => setLlmModel(s.model)).catch(() => {});
   }, []);
 
   // Auto-scroll to bottom
@@ -100,6 +102,7 @@ export function AiChatPanel() {
         <span className={`chat-status ${serviceOnline === true ? 'online' : serviceOnline === false ? 'offline' : 'checking'}`}>
           {serviceOnline === true ? 'Online' : serviceOnline === false ? 'Offline' : '...'}
         </span>
+        {llmModel && <span className="chat-status online" style={{ marginLeft: 4 }}>{llmModel.split('/')[1]}</span>}
       </div>
 
       <div className="chat-messages">

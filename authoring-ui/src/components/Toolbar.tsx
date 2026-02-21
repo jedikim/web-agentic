@@ -1,10 +1,12 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { useRecipeStore } from '../store/recipeStore.ts';
 import { useValidation } from '../hooks/useValidation.ts';
 import { importFromFiles } from '../utils/importRecipe.ts';
 import { exportRecipeZip } from '../utils/exportRecipe.ts';
 import { nodeColors, nodeLabels } from '../nodes/nodeTypes.ts';
 import type { WorkflowStep } from '../validation/schemas.ts';
+import { LlmSettingsModal } from './LlmSettingsModal.tsx';
+import type { LlmSettings } from '../utils/authoringClient.ts';
 
 const STEP_TYPES = ['goto', 'act_cached', 'checkpoint', 'extract', 'wait'] as const;
 
@@ -39,6 +41,8 @@ export function Toolbar() {
   const domain = useRecipeStore((s) => s.domain);
   const version = useRecipeStore((s) => s.version);
   const { isValid, errorCount } = useValidation();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [llmSettings, setLlmSettings] = useState<LlmSettings | null>(null);
 
   const handleAddStep = (op: WorkflowStep['op']) => {
     addStep(createDefaultStep(op));
@@ -86,6 +90,13 @@ export function Toolbar() {
         </div>
       </div>
       <div className="toolbar-right">
+        <button
+          className={`toolbar-btn ${llmSettings?.isConfigured ? 'toolbar-btn-valid' : ''}`}
+          onClick={() => setSettingsOpen(true)}
+          title={llmSettings?.isConfigured ? `LLM: ${llmSettings.model}` : 'Configure LLM'}
+        >
+          {llmSettings?.isConfigured ? `LLM: ${llmSettings.model?.split('/')[1]}` : 'LLM Settings'}
+        </button>
         <button className="toolbar-btn" onClick={resetToDefault}>New Recipe</button>
         <button className="toolbar-btn" onClick={() => fileInputRef.current?.click()}>Import...</button>
         <button className="toolbar-btn" onClick={handleExportZip}>Export ZIP</button>
@@ -105,6 +116,11 @@ export function Toolbar() {
           style={{ display: 'none' }}
         />
       </div>
+      <LlmSettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onConfigured={setLlmSettings}
+      />
     </header>
   );
 }

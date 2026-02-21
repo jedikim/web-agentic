@@ -57,3 +57,57 @@ export async function healthCheck(): Promise<boolean> {
     return false;
   }
 }
+
+export interface LlmSettings {
+  model: string | null;
+  provider: string | null;
+  isConfigured: boolean;
+  openaiKeySet: boolean;
+  geminiKeySet: boolean;
+  openaiKeyMasked: string | null;
+  geminiKeyMasked: string | null;
+}
+
+export interface LlmSettingsRequest {
+  model?: string;
+  openai_api_key?: string;
+  gemini_api_key?: string;
+}
+
+export interface ModelInfo {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface AvailableModels {
+  [provider: string]: {
+    models: ModelInfo[];
+    available: boolean;
+  };
+}
+
+export async function getLlmSettings(): Promise<LlmSettings> {
+  const res = await fetch(`${getBaseUrl()}/llm-settings`);
+  if (!res.ok) throw new Error('Failed to get LLM settings');
+  return res.json();
+}
+
+export async function setLlmSettings(req: LlmSettingsRequest): Promise<LlmSettings> {
+  const res = await fetch(`${getBaseUrl()}/llm-settings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Failed to save LLM settings: ${text}`);
+  }
+  return res.json();
+}
+
+export async function getAvailableModels(): Promise<AvailableModels> {
+  const res = await fetch(`${getBaseUrl()}/llm-settings/models`);
+  if (!res.ok) throw new Error('Failed to get available models');
+  return res.json();
+}
