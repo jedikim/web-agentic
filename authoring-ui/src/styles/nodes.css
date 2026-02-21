@@ -1,0 +1,57 @@
+/* Node type color classes for React Flow custom nodes */
+.node-goto {
+  border-color: var(--node-goto);
+  background: color-mix(in srgb, var(--node-goto) 15%, var(--bg-secondary));
+}
+
+.node-act {
+  border-color: var(--node-act);
+  background: color-mix(in srgb, var(--node-act) 15%, var(--bg-secondary));
+}
+
+.node-checkpoint {
+  border-color: var(--node-checkpoint);
+  background: color-mix(in srgb, var(--node-checkpoint) 15%, var(--bg-secondary));
+}
+
+.node-extract {
+  border-color: var(--node-extract);
+  background: color-mix(in srgb, var(--node-extract) 15%, var(--bg-secondary));
+}
+
+.node-wait {
+  border-color: var(--node-wait);
+  background: color-mix(in srgb, var(--node-wait) 15%, var(--bg-secondary));
+}
+
+.flow-node {
+  border: 2px solid;
+  border-radius: 6px;
+  padding: 8px 12px;
+  min-width: 140px;
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.flow-node .node-label {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.flow-node .node-detail {
+  color: var(--text-secondary);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 160px;
+}
+
+.flow-node.selected {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.flow-node.invalid {
+  border-color: var(--error);
+}
