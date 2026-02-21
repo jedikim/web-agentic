@@ -13,6 +13,7 @@ export interface CompileIntentRequest {
   procedure?: string;
   domain?: string;
   context?: Record<string, unknown>;
+  history?: Array<{ role: string; content: string }>;
 }
 
 export interface CompileIntentResponse {

@@ -47,21 +47,28 @@ export function AiChatPanel() {
     if (!text || isLoading) return;
 
     const userMsg: ChatMessage = { role: 'user', content: text, timestamp: Date.now() };
-    setMessages((prev) => [...prev, userMsg]);
+    const updatedMessages = [...messages, userMsg];
+    setMessages(updatedMessages);
     setInput('');
     setIsLoading(true);
 
     try {
-      // Extract domain from text if mentioned
+      // Extract domain from text or previous messages
       const domainMatch = text.match(/(?:go\s+to|visit|open|navigate\s+to)\s+([\w.-]+\.\w{2,})/i);
       const urlMatch = text.match(/https?:\/\/([\w.-]+)/);
       const domain = domainMatch?.[1] || urlMatch?.[1] || undefined;
+
+      // Build history from previous user/assistant messages (exclude system)
+      const history = updatedMessages
+        .filter((m) => m.role === 'user' || m.role === 'assistant')
+        .map((m) => ({ role: m.role, content: m.content }));
 
       const response = await compileIntent({
         requestId: `chat-${Date.now()}`,
         goal: text,
         procedure: text,
         domain,
+        history,
       });
 
       // Load the generated recipe into the store
@@ -92,7 +99,7 @@ export function AiChatPanel() {
     } finally {
       setIsLoading(false);
     }
-  }, [input, isLoading, importRecipe]);
+  }, [input, isLoading, importRecipe, messages]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {

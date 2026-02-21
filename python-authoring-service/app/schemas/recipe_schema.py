@@ -71,12 +71,18 @@ class Fingerprint(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class ChatMessage(BaseModel):
+    role: str  # user | assistant
+    content: str
+
+
 class CompileIntentRequest(BaseModel):
     request_id: str = Field(alias="requestId")
     goal: str
     procedure: str | None = None
     domain: str | None = None
     context: dict | None = None
+    history: list[ChatMessage] | None = None
 
     model_config = {"populate_by_name": True}
 

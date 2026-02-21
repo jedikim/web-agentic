@@ -149,10 +149,20 @@ def _build_selectors_from_parsed(parsed: dict) -> dict[str, SelectorEntry]:
     return selectors
 
 
+def _build_context_with_history(request: CompileIntentRequest) -> str:
+    """Merge request.context with conversation history into a single JSON string."""
+    ctx = dict(request.context) if request.context else {}
+    if request.history:
+        ctx["conversation_history"] = [
+            {"role": m.role, "content": m.content} for m in request.history
+        ]
+    return json.dumps(ctx)
+
+
 async def _compile_with_dspy(request: CompileIntentRequest) -> CompileIntentResponse:
     """Use the DSPy program to compile intent into a recipe."""
     program = _get_program()
-    context_str = json.dumps(request.context) if request.context else "{}"
+    context_str = _build_context_with_history(request)
 
     result = program(
         goal=request.goal,
