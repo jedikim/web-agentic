@@ -55,3 +55,17 @@
 .flow-node.invalid {
   border-color: var(--error);
 }
+
+/* Run status highlights on flow nodes */
+.flow-node.run-running {
+  box-shadow: 0 0 0 3px rgba(0, 120, 212, 0.5);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.flow-node.run-passed {
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.5);
+}
+
+.flow-node.run-failed {
+  box-shadow: 0 0 0 3px rgba(241, 76, 76, 0.5);
+}

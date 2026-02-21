@@ -112,3 +112,39 @@ export async function getAvailableModels(): Promise<AvailableModels> {
   if (!res.ok) throw new Error('Failed to get available models');
   return res.json();
 }
+
+// ── Run Recipe ───────────────────────────────────
+
+export interface StartRunResponse {
+  runId: string;
+}
+
+export async function startRunRecipe(
+  recipe: Record<string, unknown>,
+  options?: Record<string, unknown>,
+): Promise<StartRunResponse> {
+  const res = await fetch(`${getBaseUrl()}/run-recipe`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ recipe, options }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Failed to start run: ${text}`);
+  }
+  return res.json();
+}
+
+export function createRunEventSource(runId: string): EventSource {
+  return new EventSource(`${getBaseUrl()}/run-recipe/stream/${runId}`);
+}
+
+export async function cancelRun(runId: string): Promise<void> {
+  const res = await fetch(`${getBaseUrl()}/run-recipe/cancel/${runId}`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Failed to cancel run: ${text}`);
+  }
+}

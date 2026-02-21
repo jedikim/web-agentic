@@ -1,6 +1,7 @@
 import { useRef, useState, useEffect } from 'react';
 import { useRecipeStore } from '../store/recipeStore.ts';
 import { useValidation } from '../hooks/useValidation.ts';
+import { useRunRecipe } from '../hooks/useRunRecipe.ts';
 import { importFromFiles } from '../utils/importRecipe.ts';
 import { exportRecipeZip } from '../utils/exportRecipe.ts';
 import { nodeColors, nodeLabels } from '../nodes/nodeTypes.ts';
@@ -41,6 +42,8 @@ export function Toolbar() {
   const domain = useRecipeStore((s) => s.domain);
   const version = useRecipeStore((s) => s.version);
   const { isValid, errorCount } = useValidation();
+  const { startRun, cancelRun, status: runStatus } = useRunRecipe();
+  const isRunning = runStatus === 'running' || runStatus === 'starting';
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [llmSettings, setLlmSettings] = useState<LlmSettings | null>(null);
   const [checkedOnMount, setCheckedOnMount] = useState(false);
@@ -116,6 +119,18 @@ export function Toolbar() {
         <button className="toolbar-btn" onClick={resetToDefault}>New Recipe</button>
         <button className="toolbar-btn" onClick={() => fileInputRef.current?.click()}>Import...</button>
         <button className="toolbar-btn" onClick={handleExportZip}>Export ZIP</button>
+        {isRunning ? (
+          <button className="toolbar-btn toolbar-btn-cancel" onClick={cancelRun}>Cancel Run</button>
+        ) : (
+          <button
+            className="toolbar-btn toolbar-btn-run"
+            onClick={startRun}
+            disabled={!isValid}
+            title={isValid ? 'Run recipe in headless browser' : 'Fix validation errors first'}
+          >
+            Run
+          </button>
+        )}
         <button
           className={`toolbar-btn ${isValid ? 'toolbar-btn-valid' : 'toolbar-btn-invalid'}`}
           title={isValid ? 'Recipe is valid' : `${errorCount} validation error(s)`}

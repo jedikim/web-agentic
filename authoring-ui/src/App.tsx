@@ -6,6 +6,7 @@ import { Toolbar } from './components/Toolbar.tsx';
 import { FlowCanvas } from './components/FlowCanvas.tsx';
 import { PropertyPanel } from './components/PropertyPanel.tsx';
 import { AiChatPanel } from './components/AiChatPanel.tsx';
+import { RunProgressPanel } from './components/RunProgressPanel.tsx';
 import './styles/index.css';
 import './styles/nodes.css';
 
@@ -32,6 +33,8 @@ export default function App() {
             <PropertyPanel />
           </aside>
         </div>
+
+        <RunProgressPanel />
 
         <footer className="status-bar">
           <ValidationStatus />
