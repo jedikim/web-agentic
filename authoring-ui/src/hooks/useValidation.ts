@@ -53,11 +53,11 @@ export function validateRecipe(state: {
     errors.push(...zodErrorToValidationErrors(polResult.error, 'policies'));
   }
 
-  // Cross-reference: targetKeys in workflow must exist in actions
+  // Cross-reference: act_cached targetKeys must exist in actions
   if (wfResult.success && actResult.success) {
     const actionKeys = new Set(Object.keys(state.actions as Record<string, unknown>));
     for (const step of wfResult.data.steps) {
-      if (step.targetKey && !actionKeys.has(step.targetKey)) {
+      if (step.op === 'act_cached' && step.targetKey && !actionKeys.has(step.targetKey)) {
         errors.push({
           file: 'workflow',
           path: `steps.${step.id}.targetKey`,

@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import signal
 import uuid
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -72,6 +74,18 @@ async def _read_stdout(run_id: str, run: _ActiveRun) -> None:
     except Exception:
         pass
     finally:
+        # If no output was produced, check stderr for error info
+        if not run.lines and run.proc.stderr:
+            try:
+                stderr_bytes = await asyncio.wait_for(run.proc.stderr.read(), timeout=5)
+                if stderr_bytes:
+                    err_msg = stderr_bytes.decode().strip()
+                    error_line = json.dumps({"type": "run_error", "error": f"Subprocess error: {err_msg[:500]}"})
+                    run.lines.append(error_line)
+                    for q in run.subscribers:
+                        await q.put(error_line)
+            except Exception:
+                pass
         # Signal end-of-stream to subscribers
         for q in run.subscribers:
             await q.put(None)
@@ -87,11 +101,15 @@ async def start_run(req: RunRecipeRequest) -> RunStartResponse:
 
     payload = json.dumps({"recipe": req.recipe, "options": req.options or {}})
 
+    # Resolve project root (one level up from python-authoring-service/)
+    project_root = str(Path(__file__).resolve().parents[3])
+
     proc = await asyncio.create_subprocess_exec(
         "npx", "tsx", "node-runtime/src/cli/run-recipe.ts",
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        cwd=project_root,
     )
 
     # Feed recipe via stdin then close

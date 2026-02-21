@@ -66,6 +66,15 @@ describe('validateRecipe', () => {
     expect(errors.some((e) => e.message.includes('click_link'))).toBe(false);
   });
 
+  it('does not flag targetKey on extract steps', () => {
+    const recipe = createDefaultRecipe();
+    recipe.workflow.steps = [
+      { id: 'step-1', op: 'extract', targetKey: 'headline_news_items', args: { instruction: 'Extract headlines' } },
+    ];
+    const errors = validateRecipe(recipe);
+    expect(errors.some((e) => e.message.includes('headline_news_items'))).toBe(false);
+  });
+
   it('validates valid fingerprints', () => {
     const recipe = createDefaultRecipe();
     recipe.fingerprints = {

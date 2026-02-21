@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { FileTree } from './components/FileTree.tsx';
 import { JsonEditor } from './components/JsonEditor.tsx';
@@ -7,10 +8,17 @@ import { FlowCanvas } from './components/FlowCanvas.tsx';
 import { PropertyPanel } from './components/PropertyPanel.tsx';
 import { AiChatPanel } from './components/AiChatPanel.tsx';
 import { RunProgressPanel } from './components/RunProgressPanel.tsx';
+import { useProjectStore } from './store/projectStore.ts';
 import './styles/index.css';
 import './styles/nodes.css';
 
 export default function App() {
+  const initialize = useProjectStore((s) => s.initialize);
+
+  useEffect(() => {
+    initialize();
+  }, [initialize]);
+
   return (
     <ReactFlowProvider>
       <div className="app-layout">

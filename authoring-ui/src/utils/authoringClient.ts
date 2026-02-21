@@ -123,7 +123,7 @@ export async function startRunRecipe(
   recipe: Record<string, unknown>,
   options?: Record<string, unknown>,
 ): Promise<StartRunResponse> {
-  const res = await fetch(`${getBaseUrl()}/run-recipe`, {
+  const res = await fetch(`${getBaseUrl()}/run-recipe/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ recipe, options }),

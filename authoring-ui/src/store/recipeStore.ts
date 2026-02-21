@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { Workflow, WorkflowStep, ActionsMap, SelectorsMap, FingerprintsMap, PoliciesMap } from '../validation/schemas.ts';
 import { createDefaultRecipe } from '../utils/recipeDefaults.ts';
+import type { RecipeSnapshot } from './projectTypes.ts';
 
 interface RecipeState {
   workflow: Workflow;
@@ -27,6 +28,8 @@ interface RecipeActions {
   importRecipe: (files: Record<string, unknown>) => void;
   exportRecipe: () => Record<string, unknown>;
   resetToDefault: () => void;
+  getSnapshot: () => RecipeSnapshot;
+  loadSnapshot: (snap: RecipeSnapshot) => void;
 }
 
 export type RecipeStore = RecipeState & RecipeActions;
@@ -117,5 +120,23 @@ export const useRecipeStore = create<RecipeStore>((set, get) => ({
       version: 'v001',
       isDirty: false,
     });
+  },
+
+  getSnapshot: () => {
+    const s = get();
+    return {
+      workflow: s.workflow,
+      actions: s.actions,
+      selectors: s.selectors,
+      fingerprints: s.fingerprints,
+      policies: s.policies,
+      domain: s.domain,
+      flow: s.flow,
+      version: s.version,
+    };
+  },
+
+  loadSnapshot: (snap) => {
+    set({ ...snap, isDirty: false });
   },
 }));

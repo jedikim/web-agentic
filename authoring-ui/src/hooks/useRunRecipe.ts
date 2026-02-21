@@ -39,10 +39,14 @@ export function useRunRecipe() {
               state.setStepStart(data.stepId, data.stepIndex, data.op);
               break;
             case 'step_end':
-              state.setStepEnd(data.stepId, data.ok, data.durationMs, data.message);
+              state.setStepEnd(data.stepId, data.ok, data.durationMs, {
+                error: data.message,
+                data: data.data,
+                screenshot: data.screenshot,
+              });
               break;
             case 'run_complete':
-              state.setRunComplete(data.ok, data.totalDurationMs);
+              state.setRunComplete(data.ok, data.totalDurationMs, data.vars, data.summary);
               es.close();
               esRef.current = null;
               break;

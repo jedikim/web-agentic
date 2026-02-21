@@ -125,6 +125,17 @@ async function main() {
     // 4. Execute steps one by one (replicating WorkflowRunner.run logic)
     const runStart = Date.now();
     const vars: Record<string, unknown> = {};
+    let passedCount = 0;
+    let failedCount = 0;
+
+    const makeSummary = () => ({
+      totalSteps: steps.length,
+      passed: passedCount,
+      failed: failedCount,
+      domain: recipe.domain ?? '',
+      flow: recipe.flow ?? '',
+      version: recipe.version ?? '',
+    });
 
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i];
@@ -134,19 +145,33 @@ async function main() {
       const result = await stepExecutor.execute(step, context);
       const durationMs = Date.now() - stepStart;
 
+      if (result.ok) passedCount++; else failedCount++;
+
       // Collect extracted data
       if (result.data) {
         Object.assign(vars, result.data);
+      }
+
+      // Capture screenshot for checkpoint steps
+      let screenshotBase64: string | undefined;
+      if (step.op === 'checkpoint') {
+        try {
+          const buf = await page.screenshot();
+          screenshotBase64 = buf.toString('base64');
+        } catch { /* non-fatal */ }
       }
 
       emit({
         type: 'step_end',
         stepId: step.id,
         stepIndex: i,
+        op: step.op,
         ok: result.ok,
         durationMs,
         ...(result.message ? { message: result.message } : {}),
         ...(result.errorType ? { errorType: result.errorType } : {}),
+        ...(result.data ? { data: result.data } : {}),
+        ...(screenshotBase64 ? { screenshot: screenshotBase64 } : {}),
       });
 
       if (!result.ok) {
@@ -158,10 +183,10 @@ async function main() {
             totalDurationMs: Date.now() - runStart,
             vars,
             abortedAt: step.id,
+            summary: makeSummary(),
           });
           return;
         }
-        // 'checkpoint' with auto-approve continues
       }
     }
 
@@ -170,6 +195,7 @@ async function main() {
       ok: true,
       totalDurationMs: Date.now() - runStart,
       vars,
+      summary: makeSummary(),
     });
   } catch (err) {
     emit({

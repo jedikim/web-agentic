@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRecipeStore } from '../store/recipeStore.ts';
+import { useProjectStore } from '../store/projectStore.ts';
+import { projectChatKey } from '../store/projectTypes.ts';
 import { compileIntent, healthCheck, getLlmSettings } from '../utils/authoringClient.ts';
 
 interface ChatMessage {
@@ -8,16 +10,16 @@ interface ChatMessage {
   timestamp: number;
 }
 
-const STORAGE_KEY = 'ai-chat-history';
 const SYSTEM_MSG: ChatMessage = {
   role: 'system',
   content: 'Describe the web automation you want to create.\nExample: "Go to amazon.com, search for laptop, click the first result, extract the price"',
   timestamp: 0,
 };
 
-function loadHistory(): ChatMessage[] {
+function loadHistory(projectId: string): ChatMessage[] {
+  if (!projectId) return [SYSTEM_MSG];
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(projectChatKey(projectId));
     if (raw) {
       const parsed = JSON.parse(raw) as ChatMessage[];
       if (parsed.length > 0) return [SYSTEM_MSG, ...parsed];
@@ -26,14 +28,15 @@ function loadHistory(): ChatMessage[] {
   return [SYSTEM_MSG];
 }
 
-function saveHistory(messages: ChatMessage[]) {
-  // Save only user/assistant messages (skip system)
+function saveHistory(projectId: string, messages: ChatMessage[]) {
+  if (!projectId) return;
   const toSave = messages.filter((m) => m.role !== 'system');
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+  localStorage.setItem(projectChatKey(projectId), JSON.stringify(toSave));
 }
 
 export function AiChatPanel() {
-  const [messages, setMessages] = useState<ChatMessage[]>(loadHistory);
+  const activeProjectId = useProjectStore((s) => s.activeProjectId);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => loadHistory(activeProjectId));
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [serviceOnline, setServiceOnline] = useState<boolean | null>(null);
@@ -43,6 +46,11 @@ export function AiChatPanel() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const importRecipe = useRecipeStore((s) => s.importRecipe);
+
+  // Reload chat history when project changes
+  useEffect(() => {
+    setMessages(loadHistory(activeProjectId));
+  }, [activeProjectId]);
 
   // Check service health and LLM config on mount + poll for config changes
   useEffect(() => {
@@ -58,8 +66,8 @@ export function AiChatPanel() {
   // Auto-scroll + persist to localStorage
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    saveHistory(messages);
-  }, [messages]);
+    saveHistory(activeProjectId, messages);
+  }, [messages, activeProjectId]);
 
   const handleSubmit = useCallback(async () => {
     const text = input.trim();

@@ -1,4 +1,4 @@
-import { useRunStore, type RunStep } from '../store/runStore.ts';
+import { useRunStore, type RunStep, type RunResultTab } from '../store/runStore.ts';
 import { nodeColors } from '../nodes/nodeTypes.ts';
 
 function formatMs(ms: number | undefined | null): string {
@@ -32,12 +32,90 @@ function StepRow({ step }: { step: RunStep }) {
   );
 }
 
+function DataTab() {
+  const summary = useRunStore((s) => s.summary);
+  const vars = useRunStore((s) => s.vars);
+  const steps = useRunStore((s) => s.steps);
+
+  const stepsWithData = steps.filter((s) => s.data && Object.keys(s.data).length > 0);
+  const hasVars = Object.keys(vars).length > 0;
+
+  return (
+    <div className="run-data-tab">
+      {summary && (
+        <div className="run-summary-card">
+          <div className="run-summary-header">Run Summary</div>
+          <div className="run-summary-grid">
+            {summary.domain && <div className="run-summary-item"><span className="run-summary-label">Domain</span><span>{summary.domain}</span></div>}
+            {summary.flow && <div className="run-summary-item"><span className="run-summary-label">Flow</span><span>{summary.flow}</span></div>}
+            {summary.version && <div className="run-summary-item"><span className="run-summary-label">Version</span><span>{summary.version}</span></div>}
+            <div className="run-summary-item"><span className="run-summary-label">Steps</span><span>{summary.passed}/{summary.totalSteps} passed</span></div>
+            {summary.failed > 0 && <div className="run-summary-item"><span className="run-summary-label">Failed</span><span className="run-summary-fail">{summary.failed}</span></div>}
+          </div>
+        </div>
+      )}
+      {stepsWithData.length > 0 && (
+        <div className="run-data-section">
+          <div className="run-data-section-title">Step Data</div>
+          {stepsWithData.map((step) => (
+            <div key={step.stepId} className="run-data-step">
+              <div className="run-data-step-header">#{step.stepIndex + 1} {step.op} — {step.stepId}</div>
+              <pre className="run-data-json">{JSON.stringify(step.data, null, 2)}</pre>
+            </div>
+          ))}
+        </div>
+      )}
+      {hasVars && (
+        <div className="run-data-section">
+          <div className="run-data-section-title">Collected Variables</div>
+          <pre className="run-data-json">{JSON.stringify(vars, null, 2)}</pre>
+        </div>
+      )}
+      {!summary && stepsWithData.length === 0 && !hasVars && (
+        <div className="run-data-empty">No data collected yet</div>
+      )}
+    </div>
+  );
+}
+
+function ScreenshotsTab() {
+  const steps = useRunStore((s) => s.steps);
+  const screenshots = steps.filter((s) => s.screenshot);
+
+  if (screenshots.length === 0) {
+    return <div className="run-data-empty">No screenshots captured</div>;
+  }
+
+  return (
+    <div className="run-screenshots-grid">
+      {screenshots.map((step) => (
+        <div key={step.stepId} className="run-screenshot-card">
+          <div className="run-screenshot-label">#{step.stepIndex + 1} {step.stepId}</div>
+          <img
+            className="run-screenshot-img"
+            src={`data:image/png;base64,${step.screenshot}`}
+            alt={`Screenshot: ${step.stepId}`}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const TAB_LABELS: { key: RunResultTab; label: string }[] = [
+  { key: 'progress', label: 'Progress' },
+  { key: 'data', label: 'Data' },
+  { key: 'screenshots', label: 'Screenshots' },
+];
+
 export function RunProgressPanel() {
   const status = useRunStore((s) => s.status);
   const steps = useRunStore((s) => s.steps);
   const totalDurationMs = useRunStore((s) => s.totalDurationMs);
   const error = useRunStore((s) => s.error);
   const reset = useRunStore((s) => s.reset);
+  const activeResultTab = useRunStore((s) => s.activeResultTab);
+  const setActiveResultTab = useRunStore((s) => s.setActiveResultTab);
 
   if (status === 'idle') return null;
 
@@ -48,6 +126,9 @@ export function RunProgressPanel() {
     'run-header-active';
 
   const isDone = status === 'completed' || status === 'failed' || status === 'cancelled';
+
+  const dataCount = steps.filter((s) => s.data && Object.keys(s.data).length > 0).length;
+  const screenshotCount = steps.filter((s) => s.screenshot).length;
 
   return (
     <div className="run-progress-panel">
@@ -67,10 +148,31 @@ export function RunProgressPanel() {
         )}
       </div>
       {error && <div className="run-error-banner">{error}</div>}
-      <div className="run-steps-list">
-        {steps.map((step) => (
-          <StepRow key={step.stepIndex} step={step} />
-        ))}
+      <div className="run-tab-bar">
+        {TAB_LABELS.map(({ key, label }) => {
+          const count = key === 'data' ? dataCount : key === 'screenshots' ? screenshotCount : 0;
+          return (
+            <button
+              key={key}
+              className={`run-tab ${activeResultTab === key ? 'run-tab-active' : ''}`}
+              onClick={() => setActiveResultTab(key)}
+            >
+              {label}
+              {count > 0 && <span className="run-tab-count">{count}</span>}
+            </button>
+          );
+        })}
+      </div>
+      <div className="run-tab-content">
+        {activeResultTab === 'progress' && (
+          <div className="run-steps-list">
+            {steps.map((step) => (
+              <StepRow key={step.stepIndex} step={step} />
+            ))}
+          </div>
+        )}
+        {activeResultTab === 'data' && <DataTab />}
+        {activeResultTab === 'screenshots' && <ScreenshotsTab />}
       </div>
     </div>
   );

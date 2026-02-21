@@ -7,6 +7,7 @@ import { exportRecipeZip } from '../utils/exportRecipe.ts';
 import { nodeColors, nodeLabels } from '../nodes/nodeTypes.ts';
 import type { WorkflowStep } from '../validation/schemas.ts';
 import { LlmSettingsModal } from './LlmSettingsModal.tsx';
+import { ProjectSwitcher } from './ProjectSwitcher.tsx';
 import { getLlmSettings, type LlmSettings } from '../utils/authoringClient.ts';
 
 const STEP_TYPES = ['goto', 'act_cached', 'checkpoint', 'extract', 'wait'] as const;
@@ -92,6 +93,7 @@ export function Toolbar() {
   return (
     <header className="toolbar">
       <div className="toolbar-left">
+        <ProjectSwitcher />
         <span className="toolbar-title">Recipe Editor</span>
         <div className="toolbar-steps">
           {STEP_TYPES.map((op) => (
