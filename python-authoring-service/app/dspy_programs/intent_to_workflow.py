@@ -204,7 +204,7 @@ _STEP_PATTERNS: list[tuple[str, str, dict | None]] = [
     (r"\b(?:check|verify|assert|confirm|expect)\b", "checkpoint", None),
     (r"\b(?:go\s*to|open|navigate|visit|load)\b", "goto", None),
     (r"\b(?:click|press|tap|select|choose|toggle)\b", "act_cached", None),
-    (r"\b(?:type|enter|fill|input|write)\b", "act_cached", None),
+    (r"\b(?:type|enter|fill|input|write|search)\b", "act_cached", None),
     (r"\b(?:extract|scrape|get|read|capture|copy)\b", "extract", None),
     (r"\b(?:pick|filter|sort|rank|compare)\b", "choose", None),
 ]
@@ -222,18 +222,71 @@ def _generate_fallback_steps(domain: str, goal: str) -> list[WorkflowStep]:
     return steps
 
 
+def _split_into_clauses(text: str) -> list[str]:
+    """Split a natural-language sentence into individual action clauses.
+
+    Handles:
+    - Multi-line numbered/bulleted lists (split by newline)
+    - Comma-separated clauses ("go to X, click Y, extract Z")
+    - Conjunction-separated clauses ("click X and extract Y", "type X then click Y")
+
+    Only splits on commas/conjunctions when the resulting clauses each contain
+    an action verb, to avoid splitting phrases like "extract the price and title".
+    """
+    # First split by newlines
+    lines = [ln.strip() for ln in text.strip().splitlines() if ln.strip()]
+
+    # If we already have multiple lines, return them as-is (numbered list format)
+    if len(lines) > 1:
+        return lines
+
+    # Single line — try splitting on commas and conjunctions
+    single = lines[0] if lines else text.strip()
+
+    # Action verb pattern used to detect if a clause is actionable
+    _verb_pat = re.compile(
+        r"\b(?:go\s*to|open|navigate|visit|load|click|press|tap|select|choose|toggle"
+        r"|type|enter|fill|input|write|search|extract|scrape|get|read|capture|copy"
+        r"|pick|filter|sort|rank|compare|wait|pause|delay|check|verify|assert"
+        r"|confirm|expect|scroll|hover|submit|log\s*in|sign\s*in|add|remove|close)\b",
+        re.IGNORECASE,
+    )
+
+    # Split on ", " followed by an action verb, or " and/then " between action verbs
+    # We use a lookahead approach: split then validate
+    # Pattern: comma or " and "/" then "/" after that " as separators
+    raw_parts = re.split(r",\s+|\s+(?:and\s+then|then|and)\s+", single)
+
+    # Validate: only accept split if every clause has an action verb
+    if len(raw_parts) > 1 and all(_verb_pat.search(p) for p in raw_parts):
+        return [p.strip() for p in raw_parts if p.strip()]
+
+    # If splitting didn't produce valid clauses, try just comma splits
+    comma_parts = re.split(r",\s+", single)
+    if len(comma_parts) > 1 and all(_verb_pat.search(p) for p in comma_parts):
+        return [p.strip() for p in comma_parts if p.strip()]
+
+    # Return as single clause
+    return [single]
+
+
 def _parse_procedure_to_steps(
     procedure: str, domain: str
 ) -> list[WorkflowStep]:
-    """Parse a step-by-step procedure string into workflow steps."""
-    lines = [ln.strip() for ln in procedure.strip().splitlines() if ln.strip()]
-    steps: list[WorkflowStep] = []
-    now = datetime.now(timezone.utc).isoformat()
-    step_idx = 0
+    """Parse a step-by-step procedure string into workflow steps.
 
-    for line in lines:
+    Handles both multi-line numbered lists and single-sentence comma/conjunction-
+    separated instructions like:
+      "Go to amazon.com, search for laptop, click the first result, extract the price"
+    """
+    clauses = _split_into_clauses(procedure)
+    steps: list[WorkflowStep] = []
+    step_idx = 0
+    detected_domain = domain
+
+    for clause in clauses:
         # Strip leading numbering like "1.", "1)", "- ", "* "
-        cleaned = re.sub(r"^[\d]+[.)]\s*", "", line)
+        cleaned = re.sub(r"^[\d]+[.)]\s*", "", clause)
         cleaned = re.sub(r"^[-*]\s*", "", cleaned).strip()
         if not cleaned:
             continue
@@ -257,10 +310,14 @@ def _parse_procedure_to_steps(
         if matched_op == "goto":
             # Try to extract URL from the text
             url_match = re.search(r"(https?://\S+)", cleaned)
+            domain_match = re.search(r"\b([\w.-]+\.(?:com|org|net|io|co|ai|dev|app)\b)", cleaned)
             if url_match:
                 args = {"url": url_match.group(1)}
+            elif domain_match:
+                detected_domain = domain_match.group(1)
+                args = {"url": f"https://{detected_domain}"}
             else:
-                args = {"url": f"https://{domain or 'example.com'}"}
+                args = {"url": f"https://{detected_domain or 'example.com'}"}
         elif matched_op in ("act_cached", "extract", "choose"):
             target_key = f"target_{step_idx}"
             args = {"instruction": cleaned}

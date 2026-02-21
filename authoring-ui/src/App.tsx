@@ -5,6 +5,7 @@ import { ValidationStatus } from './components/ValidationStatus.tsx';
 import { Toolbar } from './components/Toolbar.tsx';
 import { FlowCanvas } from './components/FlowCanvas.tsx';
 import { PropertyPanel } from './components/PropertyPanel.tsx';
+import { AiChatPanel } from './components/AiChatPanel.tsx';
 import './styles/index.css';
 import './styles/nodes.css';
 
@@ -16,6 +17,7 @@ export default function App() {
 
         <div className="main-content">
           <aside className="sidebar-left">
+            <AiChatPanel />
             <FileTree />
             <div className="json-editor-container">
               <JsonEditor />
