@@ -1,0 +1,100 @@
+# 동의어/유사어 사전 — R(Rule Engine)에서 사용
+# 기술 기획서 부록 A 참조
+
+sort_synonyms:
+  popular:
+    - "인기순"
+    - "인기"
+    - "인기상품"
+    - "베스트"
+    - "판매순"
+    - "판매많은순"
+    - "추천순"
+    - "TOP"
+    - "popular"
+    - "best"
+    - "best_selling"
+  latest:
+    - "최신순"
+    - "최신"
+    - "신상품순"
+    - "최근"
+    - "newest"
+    - "latest"
+    - "recent"
+  price_low:
+    - "낮은가격순"
+    - "저가순"
+    - "가격낮은순"
+    - "싼순"
+    - "price_asc"
+    - "cheapest"
+  price_high:
+    - "높은가격순"
+    - "고가순"
+    - "가격높은순"
+    - "비싼순"
+    - "price_desc"
+    - "most_expensive"
+  rating:
+    - "평점순"
+    - "별점순"
+    - "리뷰순"
+    - "평가순"
+    - "rating"
+    - "review"
+
+filter_synonyms:
+  price_range:
+    - "가격"
+    - "가격대"
+    - "얼마"
+    - "~원"
+    - "만원"
+    - "price"
+    - "budget"
+  rating_min:
+    - "평점"
+    - "별점"
+    - "점 이상"
+    - "stars"
+    - "rating"
+  delivery:
+    - "배송"
+    - "로켓배송"
+    - "무료배송"
+    - "당일배송"
+    - "delivery"
+    - "shipping"
+  brand:
+    - "브랜드"
+    - "메이커"
+    - "제조사"
+    - "brand"
+
+popup_close_synonyms:
+  cookie:
+    - "쿠키"
+    - "cookie"
+    - "동의"
+    - "agree"
+    - "수락"
+    - "accept"
+  newsletter:
+    - "뉴스레터"
+    - "구독"
+    - "알림"
+    - "newsletter"
+    - "subscribe"
+  promotion:
+    - "프로모션"
+    - "이벤트"
+    - "할인"
+    - "광고"
+    - "promotion"
+    - "event"
+  app_download:
+    - "앱 다운로드"
+    - "앱에서 보기"
+    - "app"
+    - "download"

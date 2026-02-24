@@ -1,0 +1,29 @@
+# 규칙 예시: 인기순 정렬
+rule:
+  name: "sort_by_popular"
+  trigger:
+    context: "상품 목록 페이지"
+    intent: "인기순 정렬"
+
+  synonyms_ref: "sort_synonyms.popular"
+
+  strategy:
+    - step: "find_sort_ui"
+      method: "E_clickables에서 synonyms 매칭"
+      fallback: "escalate_to_F"
+
+    - step: "click_sort"
+      method: "X.click(matched_eid)"
+
+    - step: "verify"
+      checks:
+        - type: "element_selected"
+          selector: "matched_eid"
+        - type: "url_param_exists"
+          key: "sort"
+        - type: "page_loaded"
+      on_fail: "escalate_to_F"
+
+  guardrail:
+    max_retries: 3
+    timeout_ms: 10000

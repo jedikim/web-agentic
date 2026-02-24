@@ -1,0 +1,45 @@
+[project]
+name = "web-agentic"
+version = "0.1.0"
+description = "Adaptive web automation engine — fewer LLM calls with repeated execution"
+requires-python = ">=3.11"
+dependencies = [
+    "playwright>=1.40",
+    "pyyaml>=6.0",
+    "aiosqlite>=0.19",
+    "google-generativeai>=0.8",
+    "pillow>=10.0",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+    "mypy>=1.10",
+]
+vision = [
+    "ultralytics>=8.2",
+    "opencv-python>=4.9",
+]
+learning = [
+    "dspy>=2.5",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "A", "SIM"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
