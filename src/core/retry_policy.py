@@ -62,3 +62,30 @@ def is_retryable(failure_code: str) -> bool:
         ``True`` if the code is not in ``NON_RETRYABLE_CODES``.
     """
     return failure_code not in NON_RETRYABLE_CODES
+
+
+# ── Self-Healing Integration ────────────────────────
+
+HEALING_ELIGIBLE_CODES: dict[str, str] = {
+    "SelectorNotFound": "selector_not_found",
+    "timeout": "timing_timeout",
+    "element_not_visible": "element_hidden",
+    "element_hidden": "element_hidden",
+    "stale_element": "stale_element",
+    "navigation_failed": "navigation_incomplete",
+    "net_error": "navigation_incomplete",
+    "data_mismatch": "data_mismatch",
+    "assertion_failed": "data_mismatch",
+}
+
+
+def should_heal(failure_code: str) -> str | None:
+    """Check if a failure code is eligible for self-healing.
+
+    Args:
+        failure_code: The failure classification code.
+
+    Returns:
+        The FailureCategory value string if eligible, else None.
+    """
+    return HEALING_ELIGIBLE_CODES.get(failure_code)

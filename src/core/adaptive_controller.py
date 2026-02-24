@@ -66,3 +66,48 @@ class AdaptiveController:
             success: Whether the execution succeeded.
         """
         await self._store.record(site, intent, steps, cost, success)
+
+    async def get_cached_steps_fuzzy(
+        self,
+        site: str,
+        intent: str,
+    ) -> tuple[list[object], str, float] | None:
+        """Try fuzzy keyword matching when exact match fails.
+
+        Args:
+            site: Hostname of the target site.
+            intent: Natural language intent string.
+
+        Returns:
+            Tuple of (steps, original_intent, similarity) or None.
+        """
+        from src.learning.plan_cache import extract_keywords
+
+        kw = extract_keywords(intent)
+        return await self._store.find_similar_fuzzy(
+            site, sorted(kw.keywords), self._min_successes,
+        )
+
+    async def record_execution_with_keywords(
+        self,
+        site: str,
+        intent: str,
+        steps: list[object],
+        cost: float,
+        success: bool,
+    ) -> None:
+        """Record execution result with auto-extracted keywords.
+
+        Args:
+            site: Hostname of the target site.
+            intent: Natural language intent string.
+            steps: Executed step data.
+            cost: Total cost in USD.
+            success: Whether the execution succeeded.
+        """
+        from src.learning.plan_cache import extract_keywords
+
+        kw = extract_keywords(intent)
+        await self._store.record_with_keywords(
+            site, intent, steps, cost, success, sorted(kw.keywords),
+        )

@@ -76,6 +76,9 @@ async def execute_with_selector_recovery(
     run_fn: Callable[[], Awaitable[SelectorRecoveryRunResult]],
     build_candidates_fn: Callable[[], Awaitable[list[Any]]] | None = None,
     suggest_patch_fn: Callable[[list[Any] | None], Awaitable[dict[str, Any] | None]] | None = None,
+    fingerprint_match_fn: (
+        Callable[[list[Any] | None], Awaitable[dict[str, Any] | None]] | None
+    ) = None,
     max_attempts: int = 2,
 ) -> SelectorRecoveryOutput:
     """Execute a step with automatic selector recovery on failure.
@@ -89,6 +92,10 @@ async def execute_with_selector_recovery(
         suggest_patch_fn: Optional async callable that receives the current
             candidates (or ``None``) and returns a proposed selector patch
             dict.  Each invocation counts as one LLM call.
+        fingerprint_match_fn: Optional async callable that attempts zero-cost
+            fingerprint-based selector recovery before falling back to
+            ``suggest_patch_fn``.  If it returns a non-``None`` patch, the
+            LLM call is skipped (``llm_calls`` is not incremented).
         max_attempts: Maximum total number of ``run_fn`` invocations
             (including the initial attempt).  Must be >= 1.
 
@@ -137,6 +144,26 @@ async def execute_with_selector_recovery(
                 "Selector recovery: built %d candidates",
                 len(candidates) if candidates else 0,
             )
+
+        # Try fingerprint matching before LLM (zero-cost recovery).
+        if fingerprint_match_fn is not None:
+            fp_patch = await fingerprint_match_fn(candidates)
+            if fp_patch is not None:
+                logger.info("Selector recovery: fingerprint match found, skipping LLM")
+                result = await run_fn()
+                attempts += 1
+                if result.status == "pass":
+                    logger.info(
+                        "Selector recovery: fingerprint recovery succeeded after %d attempts",
+                        attempts,
+                    )
+                    return SelectorRecoveryOutput(
+                        status="pass",
+                        attempts=attempts,
+                        llm_calls=llm_calls,
+                        recovered=True,
+                    )
+                # Fingerprint patch didn't work — fall through to LLM.
 
         # Suggest a patch (counts as an LLM call).
         if suggest_patch_fn is None:

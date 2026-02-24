@@ -104,14 +104,16 @@ web-agentic/
 │   │   ├── executor_adapter.py    # IExecutor Protocol 재export + MockExecutor
 │   │   ├── retry_policy.py   # 재시도 정책 (non-retryable 코드 분류)
 │   │   ├── decision_port.py  # DecisionPort Protocol + Human Loop 드라이버
-│   │   └── selector_recovery.py   # 셀렉터 자동 복구 파이프라인
+│   │   ├── selector_recovery.py   # 셀렉터 자동 복구 파이프라인 (+ fingerprint 매칭)
+│   │   └── self_healing.py   # 6분류 실패 + 전용 힐링 전략
 │   ├── ai/
 │   │   ├── llm_planner.py    # L — LLM Planner (Flash/Pro) — ILLMProvider DI 지원
 │   │   ├── llm_provider.py   # ILLMProvider Protocol + Gemini/OpenAI 구현
 │   │   ├── model_registry.py # 모델 레지스트리 + resolve 로직
 │   │   ├── context_reducer.py # LLM 컨텍스트 최적화 (후보 요소 축소)
 │   │   ├── prompt_manager.py # 프롬프트 버전 관리
-│   │   └── patch_system.py   # 패치 생성/적용
+│   │   ├── patch_system.py   # 패치 생성/적용
+│   │   └── cascaded_router.py # Flash-first 라우팅 + Pro 에스컬레이션
 │   ├── vision/
 │   │   ├── yolo_detector.py  # YOLO 로컬 추론
 │   │   ├── vlm_client.py     # VLM API 클라이언트
@@ -122,7 +124,9 @@ web-agentic/
 │   │   ├── pattern_db.py     # 패턴 DB — v3에서 "셀렉터 캐시"로 용도 전환
 │   │   ├── rule_promoter.py  # v3에서 "캐시 저장 로직"으로 전환 + Canary Gate 연결
 │   │   ├── canary_gate.py    # 회귀 체크 기반 규칙 승격 게이트
-│   │   ├── replay_store.py   # 실행 이력 aiosqlite 저장소
+│   │   ├── replay_store.py   # 실행 이력 aiosqlite 저장소 (+ 키워드 퍼지 매칭)
+│   │   ├── element_fingerprint.py # Similo 다속성 fingerprint 매칭
+│   │   ├── plan_cache.py     # 키워드 추출 + 퍼지 매칭 + 플랜 적응
 │   │   ├── recipe_version.py # 셀렉터 레시피 버전 관리 + 패치 적용
 │   │   ├── dspy_optimizer.py # DSPy 최적화
 │   │   └── memory_manager.py # 4계층 메모리
@@ -190,6 +194,10 @@ web-agentic/
 | Scenario Growth | - | - | **시나리오 팩 빌더 (baseline + exception matrix)** |
 | Auto Improvement | - | - | **자동 진화 트리거 (실패 → 진화 사이클)** |
 | Metrics Dashboard | - | - | **런타임 메트릭 집계 (비용/지연/실패율)** |
+| Element Fingerprint | - | - | **Similo 다속성 fingerprint 매칭 (LLM-free 셀렉터 복구)** |
+| Plan Cache | - | - | **키워드 기반 퍼지 매칭 + 플랜 적응 (반복 비용 절감)** |
+| Cascaded Router | - | - | **Flash-first 라우팅 + 성공률 추적 (비용 30-50% 절감)** |
+| Self-Healing | - | - | **6분류 실패 + 전용 힐링 전략 (timing/hidden/stale/nav/data)** |
 
 ## v3 전환 시 필요한 작업
 
@@ -266,7 +274,7 @@ web-agentic/
 - 단위 테스트: 각 모듈의 순수 로직 (pytest)
 - 통합 테스트: 모듈 간 상호작용 (pytest-asyncio)
 - E2E 테스트: 실제 브라우저 시나리오 (playwright fixtures)
-- 현재: 1207 passed (1031 unit + 95 integration + 57 E2E + 24 skipped)
+- 현재: 1260 passed (1084 unit + 95 integration + 57 E2E + 24 skipped)
 
 ## 멀티에이전트 워크플로우
 

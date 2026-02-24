@@ -50,6 +50,17 @@ class ReplayStore:
             """)
             await db.commit()
 
+            # Migration: add keywords_json column if missing
+            cursor = await db.execute(
+                "PRAGMA table_info(execution_traces)"
+            )
+            columns = {row[1] for row in await cursor.fetchall()}
+            if "keywords_json" not in columns:
+                await db.execute(
+                    "ALTER TABLE execution_traces ADD COLUMN keywords_json TEXT DEFAULT '[]'"
+                )
+                await db.commit()
+
     async def record(
         self,
         site: str,
@@ -139,6 +150,109 @@ class ReplayStore:
             if not row or row[1] == 0:
                 return (0, 0)
             return (row[0] or 0, row[1])
+
+    async def record_with_keywords(
+        self,
+        site: str,
+        intent: str,
+        steps: list[object],
+        cost: float,
+        success: bool,
+        keywords: list[str] | None = None,
+    ) -> int:
+        """Record an execution trace with extracted keywords.
+
+        Args:
+            site: Hostname of the target site.
+            intent: Natural language intent string.
+            steps: List of step data (will be JSON-serialized).
+            cost: Total cost in USD.
+            success: Whether the execution succeeded.
+            keywords: Extracted keywords for fuzzy matching.
+
+        Returns:
+            The trace ID.
+        """
+        kw_json = json.dumps(sorted(keywords)) if keywords else "[]"
+        async with aiosqlite.connect(self._db_path) as db:
+            cursor = await db.execute(
+                "INSERT INTO execution_traces "
+                "(site, intent, steps_json, cost, success, keywords_json) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (site, intent, json.dumps(steps, default=str), cost, int(success), kw_json),
+            )
+            await db.commit()
+            return cursor.lastrowid or 0
+
+    async def find_similar_fuzzy(
+        self,
+        site: str,
+        keywords: list[str],
+        min_successes: int = 2,
+        similarity_threshold: float = 0.5,
+    ) -> tuple[list[object], str, float] | None:
+        """Find cached steps using keyword-based fuzzy matching.
+
+        Searches successful traces for the given site and computes
+        Jaccard similarity between keyword sets.
+
+        Args:
+            site: Hostname of the target site.
+            keywords: Current intent keywords.
+            min_successes: Minimum successful traces for a candidate.
+            similarity_threshold: Minimum Jaccard similarity.
+
+        Returns:
+            Tuple of (steps, original_intent, similarity) or None.
+        """
+        kw_set = frozenset(keywords)
+        if not kw_set:
+            return None
+
+        async with aiosqlite.connect(self._db_path) as db:
+            cursor = await db.execute(
+                "SELECT intent, steps_json, keywords_json FROM execution_traces "
+                "WHERE site = ? AND success = 1 "
+                "ORDER BY id DESC",
+                (site,),
+            )
+            rows = await cursor.fetchall()
+
+        # Group by intent, find best fuzzy match
+        best_sim = 0.0
+        best_steps: list[object] | None = None
+        best_intent = ""
+
+        intent_counts: dict[str, int] = {}
+        intent_data: dict[str, tuple[list[object], frozenset[str]]] = {}
+
+        for intent_str, steps_json, kw_json in rows:
+            intent_counts[intent_str] = intent_counts.get(intent_str, 0) + 1
+            if intent_str not in intent_data:
+                try:
+                    cached_kw = frozenset(json.loads(kw_json)) if kw_json else frozenset()
+                except (json.JSONDecodeError, TypeError):
+                    cached_kw = frozenset()
+                intent_data[intent_str] = (json.loads(steps_json), cached_kw)
+
+        for intent_str, (steps, cached_kw) in intent_data.items():
+            if intent_counts.get(intent_str, 0) < min_successes:
+                continue
+            if not cached_kw:
+                continue
+            # Jaccard similarity
+            intersection = kw_set & cached_kw
+            union = kw_set | cached_kw
+            sim = len(intersection) / len(union) if union else 0.0
+            if sim > best_sim:
+                best_sim = sim
+                best_steps = steps
+                best_intent = intent_str
+
+        if best_sim < similarity_threshold or best_steps is None:
+            return None
+
+        return (best_steps, best_intent, best_sim)
 
     async def close(self) -> None:
         """No-op for connection-per-call pattern."""
