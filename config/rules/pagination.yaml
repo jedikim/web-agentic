@@ -1,0 +1,123 @@
+# 페이지네이션 처리 규칙 — Phase 5 Exception Hardening
+# 12 rules for pagination, load more, infinite scroll, and navigation
+
+rules:
+  # ── Next Page Button ───────────────────────────────
+  - name: "pagination_next_page"
+    category: "pagination"
+    trigger:
+      intent: "다음 페이지"
+      site_pattern: "*"
+    selector: "a[rel='next'], button[aria-label='Next'], .pagination .next, .pager .next, a:has-text('Next'), a:has-text('다음'), button:has-text('Next'), .pagination-next, [class*='next-page']"
+    method: "click"
+    priority: 85
+
+  # ── Previous Page Button ───────────────────────────
+  - name: "pagination_prev_page"
+    category: "pagination"
+    trigger:
+      intent: "이전 페이지"
+      site_pattern: "*"
+    selector: "a[rel='prev'], button[aria-label='Previous'], .pagination .prev, .pager .prev, a:has-text('Prev'), a:has-text('이전'), button:has-text('Previous'), .pagination-prev, [class*='prev-page']"
+    method: "click"
+    priority: 85
+
+  # ── Load More Button ───────────────────────────────
+  - name: "pagination_load_more"
+    category: "pagination"
+    trigger:
+      intent: "더보기"
+      site_pattern: "*"
+    selector: "button:has-text('Load More'), button:has-text('더보기'), button:has-text('더 보기'), a:has-text('Load More'), a:has-text('더보기'), .load-more, .btn-load-more, [class*='load-more'], [data-testid='load-more']"
+    method: "click"
+    priority: 84
+
+  # ── See More Link ──────────────────────────────────
+  - name: "pagination_see_more"
+    category: "pagination"
+    trigger:
+      intent: "더 보기 링크"
+      site_pattern: "*"
+    selector: "a:has-text('See More'), a:has-text('더 보기'), a:has-text('View More'), a:has-text('Show More'), .see-more, .view-more, [class*='see-more']"
+    method: "click"
+    priority: 83
+
+  # ── Infinite Scroll Trigger ────────────────────────
+  - name: "pagination_infinite_scroll"
+    category: "pagination"
+    trigger:
+      intent: "무한 스크롤"
+      site_pattern: "*"
+    selector: ".infinite-scroll-trigger, .scroll-sentinel, [data-infinite-scroll], .infinite-loader, .scroll-loader, .lazy-load-trigger"
+    method: "scroll"
+    arguments: ["down", "1000"]
+    priority: 82
+
+  # ── Page Number Links ──────────────────────────────
+  - name: "pagination_page_number"
+    category: "pagination"
+    trigger:
+      intent: "페이지 번호 클릭"
+      site_pattern: "*"
+    selector: ".pagination a[href], .pagination li a, .pager a, .page-numbers a, [class*='pagination'] a[data-page], .paginate_button a"
+    method: "click"
+    priority: 80
+
+  # ── Arrow Navigation (Right/Next) ──────────────────
+  - name: "pagination_arrow_next"
+    category: "pagination"
+    trigger:
+      intent: "다음 화살표 클릭"
+      site_pattern: "*"
+    selector: ".arrow-next, .nav-arrow-right, [aria-label='Next page'], button.next-arrow, .pagination .arrow-right, .swiper-button-next, .slick-next, .carousel-next"
+    method: "click"
+    priority: 81
+
+  # ── Arrow Navigation (Left/Prev) ──────────────────
+  - name: "pagination_arrow_prev"
+    category: "pagination"
+    trigger:
+      intent: "이전 화살표 클릭"
+      site_pattern: "*"
+    selector: ".arrow-prev, .nav-arrow-left, [aria-label='Previous page'], button.prev-arrow, .pagination .arrow-left, .swiper-button-prev, .slick-prev, .carousel-prev"
+    method: "click"
+    priority: 81
+
+  # ── Korean "더보기" Variants ────────────────────────
+  - name: "pagination_korean_more"
+    category: "pagination"
+    trigger:
+      intent: "한국어 더보기"
+      site_pattern: "*"
+    selector: "button:has-text('더 보기'), a:has-text('더 보기'), button:has-text('더보기'), a:has-text('더보기'), button:has-text('전체보기'), a:has-text('전체보기'), [class*='more-btn']"
+    method: "click"
+    priority: 84
+
+  # ── First/Last Page ────────────────────────────────
+  - name: "pagination_first_page"
+    category: "pagination"
+    trigger:
+      intent: "첫 페이지"
+      site_pattern: "*"
+    selector: ".pagination .first, a:has-text('First'), a:has-text('처음'), [aria-label='First page'], .page-first"
+    method: "click"
+    priority: 79
+
+  - name: "pagination_last_page"
+    category: "pagination"
+    trigger:
+      intent: "마지막 페이지"
+      site_pattern: "*"
+    selector: ".pagination .last, a:has-text('Last'), a:has-text('마지막'), [aria-label='Last page'], .page-last"
+    method: "click"
+    priority: 79
+
+  # ── Items Per Page Selector ────────────────────────
+  - name: "pagination_items_per_page"
+    category: "pagination"
+    trigger:
+      intent: "페이지당 항목 수 변경"
+      site_pattern: "*"
+    selector: "select[name*='per_page'], select[name*='pageSize'], select[class*='per-page'], .items-per-page select, [data-testid='page-size'], select[name*='size']"
+    method: "select"
+    priority: 78

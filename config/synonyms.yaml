@@ -1,5 +1,6 @@
 # 동의어/유사어 사전 — R(Rule Engine)에서 사용
 # 기술 기획서 부록 A 참조
+# Phase 5: Extended with popup_close, pagination, error, auth synonym groups
 
 sort_synonyms:
   popular:
@@ -14,6 +15,10 @@ sort_synonyms:
     - "popular"
     - "best"
     - "best_selling"
+    - "best seller"
+    - "most popular"
+    - "trending"
+    - "hot"
   latest:
     - "최신순"
     - "최신"
@@ -22,6 +27,9 @@ sort_synonyms:
     - "newest"
     - "latest"
     - "recent"
+    - "new arrivals"
+    - "신상"
+    - "new"
   price_low:
     - "낮은가격순"
     - "저가순"
@@ -29,6 +37,9 @@ sort_synonyms:
     - "싼순"
     - "price_asc"
     - "cheapest"
+    - "price low to high"
+    - "lowest price"
+    - "가격 오름차순"
   price_high:
     - "높은가격순"
     - "고가순"
@@ -36,6 +47,9 @@ sort_synonyms:
     - "비싼순"
     - "price_desc"
     - "most_expensive"
+    - "price high to low"
+    - "highest price"
+    - "가격 내림차순"
   rating:
     - "평점순"
     - "별점순"
@@ -43,6 +57,15 @@ sort_synonyms:
     - "평가순"
     - "rating"
     - "review"
+    - "top rated"
+    - "highest rated"
+    - "best reviewed"
+  sales:
+    - "판매량순"
+    - "판매수"
+    - "sales"
+    - "best selling"
+    - "most sold"
 
 filter_synonyms:
   price_range:
@@ -53,12 +76,16 @@ filter_synonyms:
     - "만원"
     - "price"
     - "budget"
+    - "price range"
+    - "가격 범위"
   rating_min:
     - "평점"
     - "별점"
     - "점 이상"
     - "stars"
     - "rating"
+    - "별점 이상"
+    - "평점 이상"
   delivery:
     - "배송"
     - "로켓배송"
@@ -66,11 +93,43 @@ filter_synonyms:
     - "당일배송"
     - "delivery"
     - "shipping"
+    - "free shipping"
+    - "fast delivery"
+    - "익일배송"
   brand:
     - "브랜드"
     - "메이커"
     - "제조사"
     - "brand"
+    - "manufacturer"
+    - "maker"
+  category:
+    - "카테고리"
+    - "분류"
+    - "종류"
+    - "category"
+    - "type"
+    - "classification"
+  color:
+    - "색상"
+    - "컬러"
+    - "color"
+    - "colour"
+  size:
+    - "사이즈"
+    - "크기"
+    - "치수"
+    - "size"
+    - "dimension"
+  filter_general:
+    - "필터"
+    - "filter"
+    - "refine"
+    - "narrow"
+    - "조건"
+    - "선택"
+    - "조건 검색"
+    - "상세 검색"
 
 popup_close_synonyms:
   cookie:
@@ -80,12 +139,16 @@ popup_close_synonyms:
     - "agree"
     - "수락"
     - "accept"
+    - "쿠키 동의"
+    - "cookie consent"
   newsletter:
     - "뉴스레터"
     - "구독"
     - "알림"
     - "newsletter"
     - "subscribe"
+    - "구독 신청"
+    - "이메일 수신"
   promotion:
     - "프로모션"
     - "이벤트"
@@ -93,8 +156,165 @@ popup_close_synonyms:
     - "광고"
     - "promotion"
     - "event"
+    - "discount"
+    - "sale"
+    - "deal"
   app_download:
     - "앱 다운로드"
     - "앱에서 보기"
     - "app"
     - "download"
+    - "앱으로 보기"
+    - "open in app"
+  close_actions:
+    - "닫기"
+    - "close"
+    - "dismiss"
+    - "cancel"
+    - "취소"
+    - "아니요"
+    - "later"
+    - "not now"
+    - "skip"
+    - "no thanks"
+    - "나중에"
+    - "괜찮습니다"
+    - "건너뛰기"
+    - "다음에"
+  gdpr:
+    - "GDPR"
+    - "gdpr"
+    - "개인정보"
+    - "privacy"
+    - "데이터 수집"
+    - "data collection"
+    - "개인정보 동의"
+    - "privacy consent"
+
+pagination_synonyms:
+  next:
+    - "다음"
+    - "다음 페이지"
+    - "next"
+    - "next page"
+    - "forward"
+    - "앞으로"
+  previous:
+    - "이전"
+    - "이전 페이지"
+    - "prev"
+    - "previous"
+    - "previous page"
+    - "back"
+    - "뒤로"
+  more:
+    - "더보기"
+    - "더 보기"
+    - "load more"
+    - "see more"
+    - "show more"
+    - "view more"
+    - "전체보기"
+    - "more"
+  page:
+    - "페이지"
+    - "page"
+    - "쪽"
+  first:
+    - "처음"
+    - "첫 페이지"
+    - "first"
+    - "first page"
+  last:
+    - "마지막"
+    - "마지막 페이지"
+    - "last"
+    - "last page"
+    - "끝"
+
+error_synonyms:
+  error:
+    - "오류"
+    - "에러"
+    - "error"
+    - "문제"
+    - "problem"
+    - "issue"
+  fail:
+    - "실패"
+    - "fail"
+    - "failure"
+    - "failed"
+    - "실패했습니다"
+  timeout:
+    - "시간초과"
+    - "시간 초과"
+    - "timeout"
+    - "timed out"
+    - "응답 없음"
+    - "no response"
+  not_found:
+    - "찾을 수 없음"
+    - "not found"
+    - "404"
+    - "페이지 없음"
+    - "존재하지 않음"
+  server_error:
+    - "서버 오류"
+    - "server error"
+    - "500"
+    - "내부 서버 오류"
+    - "internal server error"
+  access_denied:
+    - "접근 거부"
+    - "access denied"
+    - "403"
+    - "forbidden"
+    - "권한 없음"
+    - "unauthorized"
+
+auth_synonyms:
+  login:
+    - "로그인"
+    - "login"
+    - "sign in"
+    - "signin"
+    - "log in"
+    - "로그 인"
+  password:
+    - "비밀번호"
+    - "password"
+    - "passwd"
+    - "암호"
+    - "패스워드"
+  verification:
+    - "인증"
+    - "verification"
+    - "verify"
+    - "확인"
+    - "본인확인"
+    - "본인 인증"
+  two_factor:
+    - "2단계 인증"
+    - "2fa"
+    - "two factor"
+    - "two-factor"
+    - "OTP"
+    - "일회용 비밀번호"
+    - "인증코드"
+    - "verification code"
+  captcha:
+    - "캡챠"
+    - "captcha"
+    - "CAPTCHA"
+    - "보안 문자"
+    - "자동 입력 방지"
+    - "robot check"
+    - "I'm not a robot"
+  signup:
+    - "회원가입"
+    - "sign up"
+    - "signup"
+    - "register"
+    - "가입"
+    - "create account"

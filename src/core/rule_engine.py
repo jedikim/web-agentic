@@ -311,7 +311,12 @@ class RuleEngine:
         logger.debug("Loaded %d rules from %s", len(self._rules), rules_dir)
 
     def _parse_rule_file(self, path: Path) -> None:
-        """Parse a single rule YAML file and append to ``self._rules``.
+        """Parse a rule YAML file and append rules to ``self._rules``.
+
+        Supports two formats:
+
+        1. **Single rule** — top-level ``rule:`` key with one rule dict.
+        2. **Multiple rules** — top-level ``rules:`` key with a list of rule dicts.
 
         The YAML structure is flexible — we extract the fields needed to
         build a ``RuleDefinition``.  Fields that are absent get defaults.
@@ -319,8 +324,25 @@ class RuleEngine:
         with open(path, encoding="utf-8") as f:
             data: dict[str, Any] = yaml.safe_load(f) or {}
 
-        rule_data = data.get("rule", data)
+        # Support multiple rules via top-level ``rules:`` list.
+        rules_list = data.get("rules")
+        if isinstance(rules_list, list):
+            for rule_data in rules_list:
+                if isinstance(rule_data, dict):
+                    self._parse_single_rule(rule_data, path)
+            return
 
+        # Single rule via ``rule:`` key or flat structure.
+        rule_data = data.get("rule", data)
+        self._parse_single_rule(rule_data, path)
+
+    def _parse_single_rule(self, rule_data: dict[str, Any], path: Path) -> None:
+        """Parse a single rule dict and append to ``self._rules``.
+
+        Args:
+            rule_data: Dictionary with rule fields.
+            path: Source file path (used as fallback for rule_id).
+        """
         rule_id = rule_data.get("name", path.stem)
         trigger = rule_data.get("trigger", {})
         guardrail = rule_data.get("guardrail", {})

@@ -1,0 +1,160 @@
+# 팝업/모달 공통 처리 규칙 — Phase 5 Exception Hardening
+# 15+ rules for common popup/modal/overlay patterns
+
+rules:
+  # ── Cookie Consent ──────────────────────────────────
+  - name: "popup_cookie_accept"
+    category: "popup"
+    trigger:
+      intent: "쿠키 동의 수락"
+      site_pattern: "*"
+    selector: "button[id*='cookie' i][class*='accept' i], button[id*='cookie' i][class*='agree' i], [data-testid*='cookie-accept'], .cookie-consent button.accept, .cookie-banner button.agree, #onetrust-accept-btn-handler, .cc-accept, .cc-btn.cc-dismiss"
+    method: "click"
+    priority: 90
+
+  - name: "popup_cookie_close"
+    category: "popup"
+    trigger:
+      intent: "쿠키 배너 닫기"
+      site_pattern: "*"
+    selector: ".cookie-close, .cookie-banner .close, [aria-label='Close cookie banner'], .cookie-consent .dismiss, #cookie-close-btn, .js-cookie-close"
+    method: "click"
+    priority: 88
+
+  - name: "popup_cookie_gdpr"
+    category: "popup"
+    trigger:
+      intent: "GDPR 동의"
+      site_pattern: "*"
+    selector: ".gdpr-consent button[class*='accept'], .gdpr-banner .agree, [data-gdpr='accept'], #gdpr-accept, .privacy-consent .accept-btn, .consent-banner .accept-all"
+    method: "click"
+    priority: 89
+
+  # ── Newsletter / Subscription ──────────────────────
+  - name: "popup_newsletter_close"
+    category: "popup"
+    trigger:
+      intent: "뉴스레터 팝업 닫기"
+      site_pattern: "*"
+    selector: ".newsletter-popup .close, .newsletter-modal .close-btn, [data-testid='newsletter-close'], .modal-newsletter button.close, .popup-newsletter .dismiss, .email-signup-popup .close"
+    method: "click"
+    priority: 85
+
+  - name: "popup_newsletter_dismiss"
+    category: "popup"
+    trigger:
+      intent: "뉴스레터 거절"
+      site_pattern: "*"
+    selector: ".newsletter-popup .no-thanks, .newsletter-modal [class*='dismiss'], .newsletter-popup [class*='later'], .email-popup .skip"
+    method: "click"
+    priority: 84
+
+  # ── Age Verification ───────────────────────────────
+  - name: "popup_age_verify"
+    category: "popup"
+    trigger:
+      intent: "나이 확인 팝업 처리"
+      site_pattern: "*"
+    selector: ".age-gate button[class*='yes'], .age-verify .confirm, [data-testid='age-gate-yes'], .age-verification .enter, #age-gate-confirm, .age-check .btn-yes"
+    method: "click"
+    priority: 87
+
+  # ── Notification Permission ────────────────────────
+  - name: "popup_notification_dismiss"
+    category: "popup"
+    trigger:
+      intent: "알림 권한 요청 닫기"
+      site_pattern: "*"
+    selector: ".notification-prompt .close, .push-notification .dismiss, [data-testid='notification-dismiss'], .notification-bar .no-thanks, .web-push-popup .close, .notification-permission .deny"
+    method: "click"
+    priority: 86
+
+  # ── App Download Prompt ────────────────────────────
+  - name: "popup_app_download_close"
+    category: "popup"
+    trigger:
+      intent: "앱 다운로드 배너 닫기"
+      site_pattern: "*"
+    selector: ".smart-banner .close, .app-banner .dismiss, [data-testid='app-banner-close'], .download-app-popup .close, .app-download .close-btn, #smartbanner .sb-close, .branch-banner-close"
+    method: "click"
+    priority: 83
+
+  # ── Survey / Feedback ──────────────────────────────
+  - name: "popup_survey_close"
+    category: "popup"
+    trigger:
+      intent: "설문 팝업 닫기"
+      site_pattern: "*"
+    selector: ".survey-popup .close, .feedback-modal .close, [data-testid='survey-dismiss'], .survey-widget .close-btn, .feedback-popup .dismiss, #QSIFeedbackButton-close"
+    method: "click"
+    priority: 82
+
+  # ── Ad Overlay ─────────────────────────────────────
+  - name: "popup_ad_overlay_close"
+    category: "popup"
+    trigger:
+      intent: "광고 오버레이 닫기"
+      site_pattern: "*"
+    selector: ".ad-overlay .close, .interstitial-close, [data-testid='ad-close'], .ad-popup .close-btn, .overlay-ad .dismiss, .modal-ad .close, #ad-close-button, .ad-banner-close"
+    method: "click"
+    priority: 81
+
+  # ── Chat Widget ────────────────────────────────────
+  - name: "popup_chat_widget_close"
+    category: "popup"
+    trigger:
+      intent: "채팅 위젯 닫기"
+      site_pattern: "*"
+    selector: ".chat-widget .close, .livechat-close, [data-testid='chat-close'], .zendesk-chat .close, .intercom-close, .drift-widget-close, .tawk-min-container .close"
+    method: "click"
+    priority: 75
+
+  # ── Login Prompt (close, not login) ────────────────
+  - name: "popup_login_prompt_close"
+    category: "popup"
+    trigger:
+      intent: "로그인 권유 팝업 닫기"
+      site_pattern: "*"
+    selector: ".login-prompt .close, .signin-modal .close-btn, [data-testid='login-modal-close'], .auth-popup .dismiss, .login-overlay .close, .modal-login .btn-close"
+    method: "click"
+    priority: 80
+
+  # ── Generic Modal Close ────────────────────────────
+  - name: "popup_generic_modal_close"
+    category: "popup"
+    trigger:
+      intent: "일반 모달 닫기"
+      site_pattern: "*"
+    selector: ".modal .close, .modal-dialog .close, [data-dismiss='modal'], .modal .btn-close, [aria-label='Close'], .overlay .close-button, .popup .close"
+    method: "click"
+    priority: 70
+
+  # ── Welcome / Onboarding ───────────────────────────
+  - name: "popup_welcome_dismiss"
+    category: "popup"
+    trigger:
+      intent: "환영 팝업 닫기"
+      site_pattern: "*"
+    selector: ".welcome-popup .close, .onboarding-modal .skip, [data-testid='welcome-dismiss'], .intro-popup .close, .welcome-overlay .dismiss, .first-visit-popup .close"
+    method: "click"
+    priority: 78
+
+  # ── Promotion / Event ──────────────────────────────
+  - name: "popup_promotion_close"
+    category: "popup"
+    trigger:
+      intent: "프로모션 팝업 닫기"
+      site_pattern: "*"
+    selector: ".promo-popup .close, .promotion-modal .close, [data-testid='promo-close'], .event-popup .dismiss, .deal-popup .close-btn, .sale-banner .close"
+    method: "click"
+    priority: 79
+
+  # ── Location Permission ────────────────────────────
+  - name: "popup_location_dismiss"
+    category: "popup"
+    trigger:
+      intent: "위치 정보 요청 닫기"
+      site_pattern: "*"
+    selector: ".location-prompt .close, .geolocation-popup .dismiss, [data-testid='location-dismiss'], .location-modal .deny, .location-banner .close"
+    method: "click"
+    priority: 77

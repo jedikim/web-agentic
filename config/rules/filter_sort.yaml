@@ -1,0 +1,143 @@
+# 필터/정렬 처리 규칙 — Phase 5 Exception Hardening
+# 14 rules for sorting and filtering product/content listings
+
+rules:
+  # ── Sort by Price (Low to High) ────────────────────
+  - name: "sort_price_low"
+    category: "sort"
+    trigger:
+      intent: "낮은가격순 정렬"
+      site_pattern: "*"
+    selector: "option[value*='price_asc'], a:has-text('낮은가격순'), a:has-text('가격낮은순'), button:has-text('Price: Low'), [data-sort='price_asc'], .sort-price-asc, option:has-text('낮은가격순')"
+    method: "click"
+    priority: 75
+
+  # ── Sort by Price (High to Low) ────────────────────
+  - name: "sort_price_high"
+    category: "sort"
+    trigger:
+      intent: "높은가격순 정렬"
+      site_pattern: "*"
+    selector: "option[value*='price_desc'], a:has-text('높은가격순'), a:has-text('가격높은순'), button:has-text('Price: High'), [data-sort='price_desc'], .sort-price-desc, option:has-text('높은가격순')"
+    method: "click"
+    priority: 75
+
+  # ── Sort by Popularity ─────────────────────────────
+  - name: "sort_popularity"
+    category: "sort"
+    trigger:
+      intent: "인기순 정렬"
+      site_pattern: "*"
+    selector: "option[value*='popular'], a:has-text('인기순'), a:has-text('인기상품'), button:has-text('Popularity'), [data-sort='popular'], .sort-popular, option:has-text('인기순')"
+    method: "click"
+    priority: 76
+
+  # ── Sort by Latest ─────────────────────────────────
+  - name: "sort_latest"
+    category: "sort"
+    trigger:
+      intent: "최신순 정렬"
+      site_pattern: "*"
+    selector: "option[value*='latest'], a:has-text('최신순'), a:has-text('신상품순'), button:has-text('Newest'), [data-sort='latest'], .sort-latest, option:has-text('최신순')"
+    method: "click"
+    priority: 75
+
+  # ── Sort by Rating ─────────────────────────────────
+  - name: "sort_rating"
+    category: "sort"
+    trigger:
+      intent: "평점순 정렬"
+      site_pattern: "*"
+    selector: "option[value*='rating'], a:has-text('평점순'), a:has-text('별점순'), button:has-text('Rating'), [data-sort='rating'], .sort-rating, option:has-text('평점순')"
+    method: "click"
+    priority: 75
+
+  # ── Sort by Sales Volume ───────────────────────────
+  - name: "sort_sales"
+    category: "sort"
+    trigger:
+      intent: "판매순 정렬"
+      site_pattern: "*"
+    selector: "option[value*='sales'], a:has-text('판매순'), a:has-text('판매많은순'), button:has-text('Best Selling'), [data-sort='sales'], .sort-sales, option:has-text('판매순')"
+    method: "click"
+    priority: 75
+
+  # ── Sort by Review Count ───────────────────────────
+  - name: "sort_review_count"
+    category: "sort"
+    trigger:
+      intent: "리뷰순 정렬"
+      site_pattern: "*"
+    selector: "option[value*='review'], a:has-text('리뷰순'), a:has-text('리뷰많은순'), button:has-text('Most Reviews'), [data-sort='review'], .sort-review, option:has-text('리뷰순')"
+    method: "click"
+    priority: 74
+
+  # ── Price Range Filter ─────────────────────────────
+  - name: "filter_price_range"
+    category: "filter"
+    trigger:
+      intent: "가격대 필터"
+      site_pattern: "*"
+    selector: ".price-filter, [data-filter='price'], input[name*='price_min'], input[name*='price_max'], .price-range-slider, .filter-price, [class*='price-filter']"
+    method: "click"
+    priority: 72
+
+  # ── Category Filter ────────────────────────────────
+  - name: "filter_category"
+    category: "filter"
+    trigger:
+      intent: "카테고리 필터"
+      site_pattern: "*"
+    selector: ".category-filter, [data-filter='category'], .filter-category, nav.categories a, .category-list a, [class*='category-filter'], .sidebar-categories a"
+    method: "click"
+    priority: 73
+
+  # ── Brand Filter ───────────────────────────────────
+  - name: "filter_brand"
+    category: "filter"
+    trigger:
+      intent: "브랜드 필터"
+      site_pattern: "*"
+    selector: ".brand-filter, [data-filter='brand'], input[name*='brand'], .filter-brand, [class*='brand-filter'], .brand-list input[type='checkbox']"
+    method: "click"
+    priority: 72
+
+  # ── Rating Filter ──────────────────────────────────
+  - name: "filter_rating"
+    category: "filter"
+    trigger:
+      intent: "평점 필터"
+      site_pattern: "*"
+    selector: ".rating-filter, [data-filter='rating'], .filter-rating, .star-rating-filter, [class*='rating-filter'], input[name*='rating']"
+    method: "click"
+    priority: 71
+
+  # ── Delivery Filter ────────────────────────────────
+  - name: "filter_delivery"
+    category: "filter"
+    trigger:
+      intent: "배송 필터"
+      site_pattern: "*"
+    selector: ".delivery-filter, [data-filter='delivery'], input[name*='delivery'], .filter-shipping, [class*='delivery-filter'], label:has-text('무료배송'), label:has-text('Free Shipping')"
+    method: "click"
+    priority: 71
+
+  # ── Color Filter ───────────────────────────────────
+  - name: "filter_color"
+    category: "filter"
+    trigger:
+      intent: "색상 필터"
+      site_pattern: "*"
+    selector: ".color-filter, [data-filter='color'], .filter-color, .color-swatch, [class*='color-filter'], input[name*='color']"
+    method: "click"
+    priority: 70
+
+  # ── Size Filter ────────────────────────────────────
+  - name: "filter_size"
+    category: "filter"
+    trigger:
+      intent: "사이즈 필터"
+      site_pattern: "*"
+    selector: ".size-filter, [data-filter='size'], .filter-size, .size-selector, [class*='size-filter'], input[name*='size'], select[name*='size']"
+    method: "click"
+    priority: 70

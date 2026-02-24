@@ -1,0 +1,123 @@
+# 에러 페이지 감지 규칙 — Phase 5 Exception Hardening
+# 10+ rules for detecting various error pages and states
+
+rules:
+  # ── 404 Not Found ──────────────────────────────────
+  - name: "error_404_page"
+    category: "error"
+    trigger:
+      intent: "404 페이지 감지"
+      site_pattern: "*"
+    selector: "h1:has-text('404'), .error-404, .not-found, [class*='404'], h1:has-text('Page Not Found'), h1:has-text('페이지를 찾을 수 없습니다')"
+    method: "detect"
+    priority: 95
+
+  # ── 500 Server Error ───────────────────────────────
+  - name: "error_500_page"
+    category: "error"
+    trigger:
+      intent: "500 서버 오류 감지"
+      site_pattern: "*"
+    selector: "h1:has-text('500'), .error-500, .server-error, [class*='500'], h1:has-text('Internal Server Error'), h1:has-text('서버 오류')"
+    method: "detect"
+    priority: 95
+
+  # ── Connection Timeout ─────────────────────────────
+  - name: "error_connection_timeout"
+    category: "error"
+    trigger:
+      intent: "연결 시간 초과 감지"
+      site_pattern: "*"
+    selector: "h1:has-text('Timed Out'), .timeout-error, [class*='timeout'], h1:has-text('Connection Timed Out'), h1:has-text('연결 시간 초과'), .err-timed-out"
+    method: "detect"
+    priority: 94
+
+  # ── Rate Limiting ──────────────────────────────────
+  - name: "error_rate_limit"
+    category: "error"
+    trigger:
+      intent: "요청 제한 감지"
+      site_pattern: "*"
+    selector: "h1:has-text('429'), .rate-limit, [class*='rate-limit'], h1:has-text('Too Many Requests'), h1:has-text('요청이 너무 많습니다'), .error-429"
+    method: "detect"
+    priority: 93
+
+  # ── Maintenance Page ───────────────────────────────
+  - name: "error_maintenance"
+    category: "error"
+    trigger:
+      intent: "점검 페이지 감지"
+      site_pattern: "*"
+    selector: ".maintenance-page, [class*='maintenance'], h1:has-text('Under Maintenance'), h1:has-text('점검 중'), h1:has-text('서비스 점검'), .under-construction"
+    method: "detect"
+    priority: 92
+
+  # ── Access Denied / 403 ────────────────────────────
+  - name: "error_access_denied"
+    category: "error"
+    trigger:
+      intent: "접근 거부 감지"
+      site_pattern: "*"
+    selector: "h1:has-text('403'), .access-denied, .forbidden, [class*='403'], h1:has-text('Access Denied'), h1:has-text('접근이 거부되었습니다'), h1:has-text('Forbidden')"
+    method: "detect"
+    priority: 93
+
+  # ── Geo-Blocked Content ────────────────────────────
+  - name: "error_geo_blocked"
+    category: "error"
+    trigger:
+      intent: "지역 차단 감지"
+      site_pattern: "*"
+    selector: ".geo-blocked, .region-blocked, [class*='geo-block'], h1:has-text('Not Available in Your Region'), h1:has-text('해당 지역에서 이용할 수 없습니다'), .country-restricted"
+    method: "detect"
+    priority: 91
+
+  # ── Session Expired ────────────────────────────────
+  - name: "error_session_expired"
+    category: "error"
+    trigger:
+      intent: "세션 만료 감지"
+      site_pattern: "*"
+    selector: ".session-expired, [class*='session-expired'], h1:has-text('Session Expired'), h1:has-text('세션이 만료되었습니다'), .login-redirect, .expired-session"
+    method: "detect"
+    priority: 90
+
+  # ── Network Offline ────────────────────────────────
+  - name: "error_network_offline"
+    category: "error"
+    trigger:
+      intent: "네트워크 오프라인 감지"
+      site_pattern: "*"
+    selector: ".offline-page, [class*='offline'], h1:has-text('No Internet'), h1:has-text('인터넷에 연결되지 않았습니다'), .no-connection, .network-error"
+    method: "detect"
+    priority: 94
+
+  # ── Service Unavailable / 503 ──────────────────────
+  - name: "error_503_unavailable"
+    category: "error"
+    trigger:
+      intent: "503 서비스 불가 감지"
+      site_pattern: "*"
+    selector: "h1:has-text('503'), .service-unavailable, [class*='503'], h1:has-text('Service Unavailable'), h1:has-text('서비스를 이용할 수 없습니다'), .error-503"
+    method: "detect"
+    priority: 93
+
+  # ── Bad Gateway / 502 ──────────────────────────────
+  - name: "error_502_bad_gateway"
+    category: "error"
+    trigger:
+      intent: "502 게이트웨이 오류 감지"
+      site_pattern: "*"
+    selector: "h1:has-text('502'), .bad-gateway, [class*='502'], h1:has-text('Bad Gateway'), h1:has-text('게이트웨이 오류'), .error-502"
+    method: "detect"
+    priority: 93
+
+  # ── SSL Certificate Error ──────────────────────────
+  - name: "error_ssl_certificate"
+    category: "error"
+    trigger:
+      intent: "SSL 인증서 오류 감지"
+      site_pattern: "*"
+    selector: ".ssl-error, [class*='certificate-error'], h1:has-text('Your Connection is Not Private'), h1:has-text('Certificate Error'), .security-warning, .cert-error"
+    method: "detect"
+    priority: 92
