@@ -276,6 +276,34 @@ web-agentic/
 - E2E 테스트: 실제 브라우저 시나리오 (playwright fixtures)
 - 현재: 1260 passed (1084 unit + 95 integration + 57 E2E + 24 skipped)
 
+### 검증 필수 사항 (반드시 준수)
+
+코드 변경 후 커밋 전, **아래 검증을 모두 직접 실행**해야 한다. 테스트 통과만으로는 부족하다.
+
+```bash
+# 1. 단위 + 통합 테스트
+python -m pytest tests/unit/ tests/integration/ -x -q
+
+# 2. E2E 브라우저 테스트
+python -m pytest tests/e2e/ -x -q -m "not live"
+
+# 3. 서버 실제 기동 확인 (uvicorn 프로세스가 정상 시작되는지 반드시 검증)
+source .venv/bin/activate
+timeout 10 python scripts/start_server.py  # "Application startup complete" 확인
+
+# 4. API 헬스체크 (서버 기동 상태에서)
+curl -s http://localhost:8000/health  # {"status":"ok"} 확인
+
+# 5. ruff + mypy
+ruff check src/ tests/ --fix
+mypy src/ --strict
+```
+
+**왜 서버 기동 테스트가 필수인가:**
+- pytest는 프로젝트 루트에서 `src/`를 직접 import하므로 패키지 설정 오류를 발견하지 못한다
+- uvicorn은 별도 프로세스를 spawn하므로 `pyproject.toml`, 의존성, import 경로 문제가 여기서 발견된다
+- 서버 lifespan (DB 초기화, ExecutorPool 생성 등)의 실제 동작은 테스트로 커버되지 않는다
+
 ## 멀티에이전트 워크플로우
 
 이 프로젝트는 5가지 역할의 에이전트가 협업합니다:
