@@ -1,78 +1,101 @@
-# 환경 설정 — 개발/운영 분리
+# Engine settings for the adaptive web automation engine
+# See docs/PRD.md and docs/ARCHITECTURE.md for design context.
 
 environment: development  # development | staging | production
 
-# 브라우저 설정
+# Engine-level settings
+engine:
+  max_retries: 3
+  step_timeout_ms: 30000
+  budget_limit_usd: 0.05
+
+# Browser settings
 browser:
   headless: true
   viewport:
     width: 1920
     height: 1080
-  user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+  viewport_width: 1920
+  viewport_height: 1080
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
   default_timeout_ms: 30000
   navigation_timeout_ms: 60000
 
-# LLM 설정
+# LLM settings
 llm:
+  tier1_model: "gemini-2.0-flash"
+  tier2_model: "gemini-2.5-pro-preview-06-05"
+  confidence_threshold: 0.7
+  max_tokens: 4096
   tier1:
-    model: "gemini-3.0-flash"
+    model: "gemini-2.0-flash"
     max_tokens: 1000
     temperature: 0.1
     timeout_ms: 10000
   tier2:
-    model: "gemini-3.1-pro-preview"
+    model: "gemini-2.5-pro-preview-06-05"
     max_tokens: 2000
     temperature: 0.2
     timeout_ms: 20000
-  confidence_threshold: 0.7  # Tier1 → Tier2 에스컬레이션 기준
 
-# Vision 설정
+# Vision settings
 vision:
+  yolo_model: "yolo11n.pt"
+  yolo_confidence: 0.5
+  vlm_tier1: "gemini-2.0-flash"
+  vlm_tier2: "gemini-2.5-pro-preview-06-05"
   yolo:
     model_size: "l"  # s|m|l|x
     confidence_threshold: 0.5
     iou_threshold: 0.5
   vlm_flash:
-    model: "gemini-3.0-flash"
+    model: "gemini-2.0-flash"
     timeout_ms: 15000
   vlm_pro:
-    model: "gemini-3.1-pro"
+    model: "gemini-2.5-pro-preview-06-05"
     timeout_ms: 30000
 
-# 에스컬레이션 설정
+# Escalation settings
 escalation:
   max_retries_per_step: 3
   max_retries_per_task: 10
 
-# 규칙 승격 설정
+# Learning / rule promotion settings
+learning:
+  pattern_min_success: 3
+  pattern_min_ratio: 0.8
+  promotion_check_interval: 5
+
 rule_promotion:
-  success_threshold: 3  # N회 성공 시 규칙 승격
+  success_threshold: 3
   confidence_min: 0.8
 
-# 비용 제한
+# Cost budget
 budget:
   per_task_usd: 0.05
   per_step_usd: 0.01
   monthly_tier2_usd: 50.0
 
-# 메모리 설정
+# Memory settings
 memory:
+  data_dir: "data"
+  artifact_ttl_hours: 24
+  max_episode_size_mb: 10
   working_max_tokens: 2000
   episode_max_tokens: 5000
-  artifact_ttl_hours: 24
 
-# 이미지 배칭 설정
+# Image batching settings
 image_batching:
   max_tiles: 16
   canvas_max_size: [2400, 1600]
   default_strategy: "grid"  # grid|strip|focus_crop
 
-# 데이터베이스
+# Database
 database:
   type: "sqlite"  # sqlite | postgresql
   path: "data/patterns.db"
 
-# 로깅
+# Logging
 logging:
   level: "INFO"
   format: "json"

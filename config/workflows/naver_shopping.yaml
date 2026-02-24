@@ -1,0 +1,97 @@
+# Naver Shopping E2E Workflow — search, sort, extract products
+#
+# Target: https://shopping.naver.com
+# Steps: navigate -> close popup -> search -> wait -> sort -> extract -> scroll
+#         -> extract more -> sort by price -> extract -> loop pages
+
+workflow:
+  name: "naver_shopping_search_sort_extract"
+  description: "Search for wireless earbuds on Naver Shopping, sort by popularity and price, extract product lists, and loop through pages."
+  version: "1.0"
+
+  steps:
+    - id: "open_naver_shopping"
+      intent: "Go to Naver Shopping homepage"
+      node_type: "action"
+      arguments: ["https://shopping.naver.com"]
+      max_retries: 2
+      timeout_ms: 15000
+
+    - id: "close_popup"
+      intent: "Close any popup or modal dialog if present"
+      node_type: "action"
+      max_retries: 1
+      timeout_ms: 5000
+
+    - id: "search_product"
+      intent: "Search for 무선 이어폰 (wireless earbuds)"
+      node_type: "action"
+      arguments: ["무선 이어폰"]
+      verify:
+        type: "url_contains"
+        value: "query="
+        timeout_ms: 10000
+      max_retries: 3
+      timeout_ms: 15000
+
+    - id: "wait_results"
+      intent: "Wait for search results to fully load"
+      node_type: "wait"
+      arguments: ["network_idle"]
+      timeout_ms: 10000
+
+    - id: "sort_by_popular"
+      intent: "Sort results by popularity (인기순)"
+      node_type: "action"
+      verify:
+        type: "url_contains"
+        value: "sort="
+        timeout_ms: 5000
+      max_retries: 3
+      timeout_ms: 10000
+
+    - id: "extract_products"
+      intent: "Extract product list from search results"
+      node_type: "extract"
+      max_retries: 3
+      timeout_ms: 10000
+
+    - id: "scroll_for_more"
+      intent: "Scroll down to load more products"
+      node_type: "action"
+      arguments: ["down", "1000"]
+      max_retries: 2
+      timeout_ms: 5000
+
+    - id: "extract_more"
+      intent: "Extract additional products after scrolling"
+      node_type: "extract"
+      max_retries: 3
+      timeout_ms: 10000
+
+    - id: "sort_by_price"
+      intent: "Sort results by lowest price (낮은가격순)"
+      node_type: "action"
+      verify:
+        type: "url_contains"
+        value: "sort=price"
+        timeout_ms: 5000
+      max_retries: 3
+      timeout_ms: 10000
+
+    - id: "extract_price_sorted"
+      intent: "Extract price-sorted product list"
+      node_type: "extract"
+      max_retries: 3
+      timeout_ms: 10000
+
+    - id: "loop_pages"
+      intent: "Loop through next 3 pages of results"
+      node_type: "loop"
+      arguments: ["next_page", "3"]
+      verify:
+        type: "url_changed"
+        value: ""
+        timeout_ms: 10000
+      max_retries: 5
+      timeout_ms: 30000
