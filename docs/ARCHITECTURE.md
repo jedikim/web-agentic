@@ -3,74 +3,122 @@
 ## 시스템 구조 개요
 
 ```
-사용자 자연어 → L(Plan) → StepQueue → R(규칙매칭)
-                                        ├─ 성공 → X(실행) → V(검증) → 다음스텝
-                                        └─ 실패 → E(추출) → F(분류) → AI레이어 → 패치 → X → V
+사용자 자연어 → DSL Parser → StepQueue → Orchestrator
+                                            │
+                                   ┌────────┴────────┐
+                                   │ 에스컬레이션 루프  │
+                                   │                  │
+                               [1] R(규칙매칭) ─ $0    │
+                                   ├─ 성공 → X → V    │
+                                   └─ 실패 ↓          │
+                               [2] E+R(휴리스틱) ─ $0  │
+                                   ├─ 성공 → X → V    │
+                                   └─ 실패 ↓          │
+                               [3] F(분류) → 복구 경로  │
+                                   ├─ L1(Flash)       │
+                                   ├─ L2(Pro)         │
+                                   ├─ YOLO → VLM      │
+                                   └─ Human Handoff   │
+                                   │                  │
+                                   │ V(검증) 성공 →    │
+                                   │ Memory 기록 →    │
+                                   │ 3회 성공 → R 승격 │
+                                   └──────────────────┘
 ```
 
 ## 모듈 간 의존성
 
 ```
 Orchestrator
-├── StepQueue
-├── R (Rule Engine)
-│   ├── E (Extractor)  ← 후보 추출 요청
-│   ├── X (Executor)   ← 실행 명령 전달
-│   └── F (Fallback Router) ← 실패 시 분류 요청
-├── V (Verifier)
-│   ├── X ← 실행 후 상태 수신
-│   └── F ← 검증 실패 시 분류 요청
-├── L (LLM Planner)
-│   └── Gemini API
-├── F (Fallback Router)
-│   ├── L (LLM Tier 1/2)
-│   ├── YOLO (Vision Tier 1)
-│   └── VLM (Vision Tier 2/3)
-└── Memory Manager
-    ├── Working Memory (dict)
-    ├── Episode Memory (dict → JSON)
-    ├── Policy Memory (SQLite)
-    └── Artifact Memory (filesystem)
+├── StepQueue              — 스텝 관리
+├── R (Rule Engine)        — 규칙 매칭
+│   └── config/rules/*.yaml, config/synonyms.yaml
+├── E (Extractor)          — DOM 추출
+├── X (Executor)           — Playwright 브라우저
+├── V (Verifier)           — 상태 검증
+├── F (Fallback Router)    — 실패 분류 + 복구
+│   ├── L (LLM Planner)   — Gemini API
+│   │   ├── Prompt Manager — 프롬프트 템플릿
+│   │   └── Patch System   — 구조화 패치
+│   └── Vision
+│       ├── YOLO Detector  — 로컬 객체 탐지
+│       ├── VLM Client     — Gemini 멀티모달
+│       ├── Image Batcher  — 이미지 전처리
+│       └── Coord Mapper   — 좌표 역매핑
+├── Memory Manager
+│   ├── Working Memory     — dict (1 스텝)
+│   ├── Episode Memory     — JSON 파일 (1 태스크)
+│   ├── Policy Memory      — SQLite (영구)
+│   └── Artifact Memory    — 파일시스템 (TTL)
+├── Handoff Manager        — 사람 위임
+└── Learning
+    ├── Pattern DB         — SQLite 패턴 기록
+    ├── Rule Promoter      — 자동 규칙 승격
+    └── DSPy Optimizer     — 프롬프트 최적화 (선택)
 ```
 
 ## 인터페이스 (Protocol 정의)
 
 각 모듈은 Python Protocol로 정의된 인터페이스로만 통신합니다.
+모든 인터페이스는 `src/core/types.py`에 정의되어 있습니다.
 
 ```python
 class IExecutor(Protocol):
+    """브라우저 자동화 인터페이스 — X 모듈"""
     async def goto(self, url: str) -> None: ...
     async def click(self, selector: str, options: ClickOptions | None = None) -> None: ...
     async def type_text(self, selector: str, text: str) -> None: ...
-    async def screenshot(self, region: tuple | None = None) -> bytes: ...
+    async def press_key(self, key: str) -> None: ...
+    async def scroll(self, direction: str = "down", amount: int = 300) -> None: ...
+    async def screenshot(self, region: tuple[int, int, int, int] | None = None) -> bytes: ...
     async def wait_for(self, condition: WaitCondition) -> None: ...
+    async def get_page(self) -> Page: ...
 
 class IExtractor(Protocol):
+    """DOM 추출 인터페이스 — E 모듈"""
     async def extract_inputs(self, page: Page) -> list[ExtractedElement]: ...
     async def extract_clickables(self, page: Page) -> list[ExtractedElement]: ...
     async def extract_products(self, page: Page) -> list[ProductData]: ...
     async def extract_state(self, page: Page) -> PageState: ...
 
 class IRuleEngine(Protocol):
+    """규칙 매칭 인터페이스 — R 모듈"""
     def match(self, intent: str, context: PageState) -> RuleMatch | None: ...
-    def heuristic_select(self, candidates: list[ExtractedElement], intent: str) -> str | None: ...
+    def heuristic_select(
+        self, candidates: list[ExtractedElement], intent: str
+    ) -> str | None: ...
     def register_rule(self, rule: RuleDefinition) -> None: ...
 
 class IVerifier(Protocol):
+    """검증 인터페이스 — V 모듈"""
     async def verify(self, condition: VerifyCondition, page: Page) -> VerifyResult: ...
 
 class IFallbackRouter(Protocol):
+    """실패 분류 + 라우팅 인터페이스 — F 모듈"""
     def classify(self, error: Exception, context: StepContext) -> FailureCode: ...
     def route(self, failure: FailureCode) -> RecoveryPlan: ...
 
 class ILLMPlanner(Protocol):
+    """LLM 기반 계획/선택 인터페이스 — L 모듈"""
     async def plan(self, instruction: str) -> list[StepDefinition]: ...
-    async def select(self, candidates: list[ExtractedElement], intent: str) -> PatchData: ...
+    async def select(
+        self, candidates: list[ExtractedElement], intent: str
+    ) -> PatchData: ...
+
+class IMemoryManager(Protocol):
+    """4계층 메모리 인터페이스"""
+    def get_working(self, key: str) -> Any: ...
+    def set_working(self, key: str, value: Any) -> None: ...
+    async def save_episode(self, task_id: str, data: dict[str, Any]) -> None: ...
+    async def load_episode(self, task_id: str) -> dict[str, Any] | None: ...
+    async def query_policy(self, intent: str, site: str) -> RuleMatch | None: ...
+    async def save_policy(self, rule: RuleDefinition, success_count: int) -> None: ...
 ```
 
-## 설정 및 의존성 주입
+## 의존성 주입 (DI 패턴)
 
-모든 모듈은 생성자에서 의존성을 주입받습니다 (DI 패턴):
+모든 모듈은 생성자에서 의존성을 주입받습니다.
+선택적 모듈(planner, memory)은 `None`이면 해당 기능이 비활성화됩니다.
 
 ```python
 class Orchestrator:
@@ -81,48 +129,126 @@ class Orchestrator:
         rule_engine: IRuleEngine,
         verifier: IVerifier,
         fallback_router: IFallbackRouter,
-        planner: ILLMPlanner,
-        memory: IMemoryManager,
-        config: Settings,
+        planner: ILLMPlanner | None = None,   # 없으면 LLM 비활성화
+        memory: IMemoryManager | None = None,  # 없으면 메모리 비활성화
     ): ...
 ```
 
+`scripts/run_poc.py`의 `create_engine()` 함수에서 전체 와이어링 예시를 확인할 수 있습니다.
+
 ## 에러 계층
 
+실패 유형별 예외 클래스가 정의되어 있어 F(Fallback Router)가 정확히 분류합니다:
+
 ```python
-class AutomationError(Exception): ...
-class SelectorNotFoundError(AutomationError): ...
-class NotInteractableError(AutomationError): ...
-class StateNotChangedError(AutomationError): ...
-class VisualAmbiguityError(AutomationError): ...
-class NetworkError(AutomationError): ...
-class CaptchaDetectedError(AutomationError): ...
-class AuthRequiredError(AutomationError): ...
-class BudgetExceededError(AutomationError): ...
+class AutomationError(Exception): ...           # 기본 예외
+class SelectorNotFoundError(AutomationError): ...  # 셀렉터 미발견
+class NotInteractableError(AutomationError): ...   # 상호작용 불가
+class StateNotChangedError(AutomationError): ...   # 상태 미변경
+class VisualAmbiguityError(AutomationError): ...   # 시각적 모호성
+class NetworkError(AutomationError): ...           # 네트워크 에러
+class CaptchaDetectedError(AutomationError): ...   # CAPTCHA 감지
+class AuthRequiredError(AutomationError): ...      # 인증 필요
+class BudgetExceededError(AutomationError): ...    # 예산 초과
+```
+
+각 예외에는 `failure_code` 속성이 있어 F 모듈이 자동으로 분류합니다.
+
+## 에스컬레이션 흐름 상세
+
+```
+[Step 실행 시작]
+│
+├─[1] R.match(intent, page_state) ──── 토큰: 0, 비용: $0
+│  ├─ 매칭 성공 → X.execute(rule.selector, rule.method)
+│  │              → V.verify(condition) ─── 성공 → 완료
+│  │                                    └── 실패 → [3]
+│  └─ 매칭 실패 → [2]
+│
+├─[2] E.extract(page) + R.heuristic_select(candidates) ──── 토큰: 0
+│  ├─ 후보 선택 성공 → X.execute(eid)
+│  │                   → V.verify(condition) ─── 성공 → 완료
+│  │                                         └── 실패 → [3]
+│  └─ 후보 없음/선택 실패 → [3]
+│
+├─[3] F.classify(error) → F.route(failure_code) ──── 에스컬레이션 결정
+│  ├─ SelectorNotFound:
+│  │   → L1(Flash) — select(candidates) ──── ~$0.001
+│  │     ├─ confidence >= 0.7 → X → V
+│  │     └─ confidence < 0.7 → L2(Pro) ──── ~$0.01
+│  │
+│  ├─ VisualAmbiguity:
+│  │   → YOLO.detect(screenshot) ──── 로컬 (무료)
+│  │     ├─ 탐지 성공 → CoordMapper → X → V
+│  │     └─ 탐지 실패 → VLM(Flash) → VLM(Pro) ──── ~$0.02
+│  │
+│  ├─ CaptchaDetected:
+│  │   → Handoff.request(CAPTCHA) ──── 사람에게 위임
+│  │
+│  ├─ AuthRequired:
+│  │   → Handoff.request(AUTH) ──── 사람에게 위임
+│  │
+│  └─ DynamicLayout (attempt >= 3):
+│     → strategy_switch → 다른 접근 방식 시도
+│
+└─ 모든 시도 실패 → StepResult(success=False)
+```
+
+## 자기학습 루프
+
+```
+실행 성공 시:
+  1. PatternDB.record_success(intent, site, selector, method)
+  2. 해당 패턴의 success_count 조회
+  3. success_count >= 3 AND success_ratio >= 0.8:
+     → RulePromoter.promote() → RuleEngine.register_rule()
+     → 다음 실행부터 R에서 직접 매칭 ($0)
+
+실행 실패 시:
+  1. PatternDB.record_failure(intent, site, selector, method)
+  2. 실패 패턴 분석 → 에스컬레이션 경로 최적화
 ```
 
 ## 비동기 패턴
 
+모든 브라우저 상호작용은 `async/await`로 처리됩니다:
+
 ```python
-# 모든 브라우저 상호작용은 async
 async def execute_step(self, step: StepDefinition) -> StepResult:
+    page = await self.executor.get_page()
+    page_state = await self.extractor.extract_state(page)
+
     for attempt in range(step.max_attempts):
         try:
-            rule_match = self.rule_engine.match(step.intent, self.current_state)
+            # 1. 규칙 매칭
+            rule_match = self.rule_engine.match(step.intent, page_state)
             if rule_match:
-                await self.executor.execute(rule_match.command)
+                await self._dispatch_action(rule_match)
             else:
-                candidates = await self.extractor.extract(self.page)
-                selected = self.rule_engine.heuristic_select(candidates, step.intent)
-                if not selected:
-                    # F → AI 에스컬레이션
+                # 2. 휴리스틱 선택
+                candidates = await self.extractor.extract_clickables(page)
+                eid = self.rule_engine.heuristic_select(candidates, step.intent)
+                if eid:
+                    await self.executor.click(eid)
+                else:
+                    # 3. 에스컬레이션
                     ...
 
-            result = await self.verifier.verify(step.verify_condition, self.page)
-            if result.success:
-                return StepResult(success=True, ...)
+            # 4. 검증
+            if step.verify_condition:
+                result = await self.verifier.verify(step.verify_condition, page)
+                if result.success:
+                    return StepResult(success=True, method="R")
+
         except AutomationError as e:
             failure = self.fallback_router.classify(e, context)
             recovery = self.fallback_router.route(failure)
             # 복구 시도 ...
 ```
+
+## 설정 파일 로드
+
+- 엔진 설정: `config/settings.yaml` — 시작 시 로드
+- 규칙 파일: `config/rules/*.yaml` — `RuleEngine.__init__()` 에서 자동 로드
+- 동의어: `config/synonyms.yaml` — `RuleEngine.__init__()` 에서 자동 로드
+- 워크플로우: `config/workflows/*.yaml` — `parse_workflow()` 로 명시적 로드
