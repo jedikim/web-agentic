@@ -4,13 +4,13 @@
 
 ## 1. 개요
 
-web-agentic 프로젝트는 **40개 테스트 파일에 걸쳐 총 823개의 테스트**를 유지하고 있으며, 4단계 테스트 피라미드로 구성되어 있습니다.
+web-agentic 프로젝트는 **52개 테스트 파일에 걸쳐 총 1260개의 테스트**를 유지하고 있으며, 4단계 테스트 피라미드로 구성되어 있습니다.
 
 | 계층 | 테스트 수 | 파일 수 | 목적 |
 |------|----------:|--------:|------|
-| 단위 테스트 | 685 | 32 | 개별 모듈 로직 검증 |
+| 단위 테스트 | 1084 | 44 | 개별 모듈 로직 검증 |
 | 통합 테스트 | 95 | 3 | 모듈 간 연동 및 API 엔드포인트 |
-| E2E 파이프라인 | 43 | 7 | 브라우저 자동화 시나리오 |
+| E2E 파이프라인 | 55 | 8 | 브라우저 자동화 시나리오 |
 | UI E2E | 6 | 1 | 전체 스택 UI + API 검증 |
 
 **사용 도구:**
@@ -24,11 +24,11 @@ web-agentic 프로젝트는 **40개 테스트 파일에 걸쳐 총 823개의 테
 
 ```mermaid
 graph TD
-    subgraph pyramid["테스트 피라미드 (총 823개)"]
+    subgraph pyramid["테스트 피라미드 (총 1260개)"]
         UI["UI E2E 테스트<br/>1개 파일, 6개 테스트"]
-        E2E["E2E 파이프라인 테스트<br/>7개 파일, 43개 테스트"]
+        E2E["E2E 파이프라인 테스트<br/>8개 파일, 55개 테스트"]
         INT["통합 테스트<br/>3개 파일, 95개 테스트"]
-        UNIT["단위 테스트<br/>32개 파일, 685개 테스트"]
+        UNIT["단위 테스트<br/>44개 파일, 1084개 테스트"]
     end
 
     UI --> E2E
@@ -62,7 +62,7 @@ graph TD
 
 ## 4. 테스트 분류
 
-### 4.1 단위 테스트 (685개, 32개 파일)
+### 4.1 단위 테스트 (1084개, 44개 파일)
 
 단위 테스트는 각 모듈의 로직을 격리하여 검증합니다. 외부 의존성(LLM API, 브라우저, 데이터베이스)은 모두 모킹됩니다.
 
@@ -88,12 +88,16 @@ graph TD
 | `test_handoff.py` | 35 | 휴먼 핸드오프 인터페이스 |
 | `test_memory_manager.py` | 44 | 4계층 메모리 시스템 |
 | `test_fallback_router.py` | 55 | 실패 분류 및 라우팅 |
-| `test_dspy_optimizer.py` | 16 | DSPy 최적화 |
+| `test_dspy_optimizer.py` | 16 | 프롬프트 최적화 placeholder (DSPy 미연동) |
 | `test_evolution_pipeline.py` | 11 | 진화 파이프라인 상태 머신 |
 | `test_dsl_parser.py` | 20 | YAML DSL 파싱 |
 | `test_llm_orchestrator.py` | 5 | LLM-First 오케스트레이터 |
 | `test_rule_engine.py` | 26 | 규칙 매칭 엔진 |
 | `test_evolution_db.py` | 20 | 진화 데이터베이스 연산 |
+| `test_element_fingerprint.py` | 12 | Similo 다속성 fingerprint 매칭 |
+| `test_plan_cache.py` | 16 | 키워드 추출 및 퍼지 플랜 적응 |
+| `test_cascaded_router.py` | 12 | Flash-first 라우팅 및 에스컬레이션 |
+| `test_self_healing.py` | 13 | 6분류 실패 분류 및 힐링 |
 
 ### 4.2 통합 테스트 (95개, 3개 파일)
 

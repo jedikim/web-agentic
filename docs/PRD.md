@@ -11,17 +11,20 @@
 
 사용자의 자연어 지시 → 웹 브라우저 자율 조작 → 비용/정확도 최적화를 위해 "룰 → 경량LLM → 고급LLM → Vision" 순서로 에스컬레이션하는 엔진.
 
-## 2. 핵심 설계 원칙 (코드에 반드시 반영)
+## 2. 핵심 설계 원칙 (v3 — LLM-First)
+
+> **참고**: v1-v2에서는 "토큰 제로 우선 (R→E+R→F→L)" 이었으나,
+> v3에서 **LLM-First (L→Cache→L+E→X→V)** 로 전환됨. 자세한 내용은 `CLAUDE.md` 참조.
 
 | 원칙 | 코드 적용 |
 |------|----------|
-| **P1 토큰 제로 우선** | R(Rule Engine)에서 처리 가능하면 L(LLM) 호출하지 않음 |
+| **P1 LLM-First** | LLM이 의도 분석 + 계획 수립 + 요소 선택의 주체. 캐시는 보조 역할 |
 | **P2 선택 문제 변환** | LLM/VLM 프롬프트는 항상 "후보 중 선택" 형태 |
 | **P3 Patch-Only** | `L`의 출력은 `PatchData` 타입만 허용. 코드 생성 금지 |
 | **P4 Verify-After-Act** | `X.execute()` 후 반드시 `V.verify()` 호출 |
-| **P5 실패에서 학습** | 성공 패턴 3회 → `R`에 규칙 승격 |
+| **P5 Smart Caching** | 성공한 LLM 결과를 캐시하여 반복 비용 절감 |
 | **P6 Human Handoff** | CAPTCHA/2FA/결제는 `Handoff` 이벤트 발생 |
-| **P7 비용 계단식** | `F(Fallback Router)`가 저비용→고비용 순서 보장 |
+| **P7 비용 계단식** | Flash-first 라우팅 → 신뢰도 < 0.7 시 Pro 에스컬레이션 |
 
 ## 3. 핵심 모듈 (6개)
 
@@ -104,18 +107,21 @@ class FailureCode(str, Enum):
     DYNAMIC_LAYOUT = "DynamicLayout"
 ```
 
-## 5. 에스컬레이션 흐름 (구현 필수)
+## 5. 에스컬레이션 흐름 (v3 — LLM-First)
 
 ```
-R(규칙매칭) → 성공 → X(실행) → V(검증) → 성공 → 다음스텝
-         ↓ 실패
-    E(후보추출) → R(휴리스틱) → 성공 → X → V
-                           ↓ 실패
-                      F(실패분류) → 최적경로 선택:
-                        ├─ SelectorNotFound → L1(Flash) → 실패 → L2(Pro)
-                        ├─ VisualAmbiguity → YOLO → VLM(Flash) → VLM(Pro)
-                        ├─ CaptchaDetected → Human Handoff
-                        └─ ...
+L(LLM 의도 분석) → 스텝 분해
+    ↓
+Cache(셀렉터 캐시 조회) → 히트 → X(실행) → V(검증) → 성공 → 다음스텝
+    ↓ 미스
+L+E(LLM 요소 선택) → X(실행) → V(검증) → 성공 → 캐시 저장 → 다음스텝
+    ↓ 실패
+F(실패분류) → 최적경로 선택:
+    ├─ SelectorNotFound → Fingerprint 매칭($0) → L1(Flash) → L2(Pro)
+    ├─ VisualAmbiguity → YOLO(로컬) → VLM(Flash) → VLM(Pro)
+    ├─ TimingTimeout → Self-Healing(타임아웃 증가)
+    ├─ CaptchaDetected → Human Handoff
+    └─ ...
 ```
 
 ## 6. Workflow/DSL (YAML 파서 구현)

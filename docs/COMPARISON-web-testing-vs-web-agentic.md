@@ -13,9 +13,9 @@
 | **언어** | TypeScript / Node.js | Python 3.11+ |
 | **실행 철학** | Rule-first (결정론 우선) | LLM-First (LLM이 주체) |
 | **브라우저** | Playwright (TS) | Playwright (async Python) |
-| **LLM** | Gemini + OpenAI (멀티프로바이더) | Gemini only (google-genai) |
+| **LLM** | Gemini + OpenAI (멀티프로바이더) | Gemini + OpenAI (ILLMProvider Protocol) |
 | **모델** | gemini-3.1-pro / gemini-3.0-flash / gpt-5.2-codex / gpt-5-mini | gemini-3.1-pro-preview / gemini-3-flash-preview |
-| **테스트** | 140 tests (vitest) | 1207 tests (pytest) |
+| **테스트** | 140 tests (vitest) | 1260 tests (pytest) |
 | **저장소** | 파일 기반 JSON | SQLite (aiosqlite) |
 | **UI** | 임베디드 HTML (backend-ui, chat-ui) | React 19 + Vite + Tailwind (evolution-ui) |
 | **진화 엔진** | bug/exception 트리거 + git worktree | 상태 머신 + git sandbox + SSE |
@@ -62,7 +62,7 @@ LLM 의도 분석 → 캐시 조회 → LLM 요소 선택 → 실행 → 검증 
 | 항목 | web-testing | web-agentic | 판정 |
 |------|------------|------------|------|
 | 워크플로우 DSL | JSON 기반 9개 노드 타입 (Navigate, Discover, Decide, Action, Verify, Loop, Branch, Checkpoint, Handoff) | YAML DSL (dsl_parser.py) + LLM이 동적 계획 | web-testing이 더 체계적 |
-| 워크플로우 검증 | validate-workflow.ts (중복 ID, 참조 검증) | 없음 (LLM이 직접 생성) | **수용 대상** |
+| 워크플로우 검증 | validate-workflow.ts (중복 ID, 참조 검증) | 없음 (LLM이 직접 생성) | ⏳ 보류 |
 | 실행 경로 빌드 | build-execution-path.ts (DAG→선형) | LLM planner가 atomic 스텝 생성 | 각각 장점 있음 |
 | 루프/분기 | LoopNode, BranchNode | LLM이 재계획 | web-testing이 구조적 |
 
@@ -74,16 +74,16 @@ LLM 의도 분석 → 캐시 조회 → LLM 요소 선택 → 실행 → 검증 
 | 스텔스 | 없음 (anti-bot 비수용) | 3단계 JS 패치, UA 로테이션 | **web-agentic 우위** |
 | 휴먼 행동 | 없음 | 베지어 마우스, 자연 타이핑, 점진 스크롤 | **web-agentic 우위** |
 | 봇 감지 방어 | human handoff로 전환 | stealth + human_behavior로 회피 | 접근 방식 차이 |
-| 어댑터 패턴 | DeterministicAdapter 인터페이스 | 직접 Executor 구현 | web-testing이 테스트 용이 |
+| 어댑터 패턴 | DeterministicAdapter 인터페이스 | executor_adapter.py (IExecutor Protocol + MockExecutor) | ✅ 수용 완료 |
 
 ### 3.3 폴백 / 복구
 
 | 항목 | web-testing | web-agentic | 판정 |
 |------|------------|------------|------|
 | 체인 | Deterministic → Selector Recovery → Visual Recovery → Human Loop | LLM → Cache → Vision → Human Handoff | 유사 |
-| 셀렉터 복구 | context-reducer + patch-validator + recipe-version | FallbackRouter + LLM 재시도 | web-testing이 구조적 |
-| 패치 검증 | SelectorPatch JSON 스키마 검증 | 없음 (LLM 출력 직접 사용) | **수용 대상** |
-| 레시피 버전 | v001→v002 자동 증분 | 캐시 TTL 기반 | **수용 대상** |
+| 셀렉터 복구 | context-reducer + patch-validator + recipe-version | selector_recovery.py + context_reducer.py + Fingerprint 매칭 | ✅ 수용 완료 |
+| 패치 검증 | SelectorPatch JSON 스키마 검증 | patch_validator.py (구조/구문 검증) | ✅ 수용 완료 |
+| 레시피 버전 | v001→v002 자동 증분 | recipe_version.py (v001→v002 + 패치 적용) | ✅ 수용 완료 |
 | 재시도 정책 | shouldRetry() + maxTotalSteps | 지수 백오프 + 서킷 브레이커 | **web-agentic 우위** |
 | 재계획 | 없음 | 연속 실패 시 LLM 재계획 | **web-agentic 우위** |
 
@@ -93,7 +93,7 @@ LLM 의도 분석 → 캐시 조회 → LLM 요소 선택 → 실행 → 검증 
 |------|------------|------------|------|
 | ROI 배칭 | roi-batcher.ts (공간 그룹핑) | image_batcher.py (그리드 배칭) | 유사 |
 | 컴포지트 시트 | composite-sheet.ts (jimp) | batch_vision_pipeline.py (Pillow) | 유사 |
-| 반복 아이템 판단 | repeated-item-judgement.ts (YOLO→VLM 체인) | 없음 | **수용 대상** |
+| 반복 아이템 판단 | repeated-item-judgement.ts (YOLO→VLM 체인) | repeated_item_judgement.py (YOLO→VLM 캐스케이드) | ✅ 수용 완료 |
 | 역매핑 | mapDetectionsToSourceItems() | coord_mapper.py | 유사 |
 | VLM 폴백 | YOLO 신뢰도 < threshold → VLM | LLM 신뢰도 < 0.7 → YOLO/VLM | 유사 |
 
@@ -125,36 +125,36 @@ LLM 의도 분석 → 캐시 조회 → LLM 요소 선택 → 실행 → 검증 
 |------|------------|------------|------|
 | SDK | WebAutomationSdk + MultiTurnAutomationSdk | WebAgent (async context manager) | 유사 |
 | HTTP 모드 | Backend Simple (4888) + Chat Automation (4999) | FastAPI (8000) | web-testing이 분리 잘됨 |
-| 채팅 자동화 | 풀 구현 (pause/resume/cancel/captcha/SSE/이미지 첨부) | 없음 | **수용 대상** |
-| headful/headless 전환 | 메시지별 선택 가능 | 세션 생성 시 결정 | **수용 대상** |
-| 이미지 첨부 | ChatMessageAttachment (upload/url/path) | 없음 | **수용 대상** |
-| 자동 일시정지 | 같은 오퍼레이터의 다른 세션 자동 일시정지 | 없음 | **수용 대상** |
+| 채팅 자동화 | 풀 구현 (pause/resume/cancel/captcha/SSE/이미지 첨부) | chat_automation.py (pause/resume/cancel/captcha) | ✅ 수용 완료 |
+| headful/headless 전환 | 메시지별 선택 가능 | session_manager.py (턴별 전환) | ✅ 수용 완료 |
+| 이미지 첨부 | ChatMessageAttachment (upload/url/path) | 없음 | ⏳ 보류 |
+| 자동 일시정지 | 같은 오퍼레이터의 다른 세션 자동 일시정지 | 없음 | ⏳ 보류 |
 
 ### 3.8 Human-in-the-Loop
 
 | 항목 | web-testing | web-agentic | 판정 |
 |------|------------|------------|------|
-| 인터페이스 | DecisionPort (go/not_go/revise/unknown) | HandoffManager | web-testing이 체계적 |
-| 스크린샷 체크포인트 | evaluateCheckpoint (confidence + threshold + sensitiveAction) | 없음 | **수용 대상** |
-| 플랫폼 정규화 | ChatPlatform (telegram/slack/whatsapp 등) | 없음 | **수용 대상** |
-| 캡차 처리 | 전용 UI + captcha 핸들러 | Human Handoff 제네릭 | web-testing이 구체적 |
-| 수정 루프 | revise → LLM 최적화 → 재실행 | 없음 | **수용 대상** |
+| 인터페이스 | DecisionPort (go/not_go/revise/unknown) | DecisionPort Protocol + HandoffManager | ✅ 수용 완료 |
+| 스크린샷 체크포인트 | evaluateCheckpoint (confidence + threshold + sensitiveAction) | checkpoint.py (confidence 기반 go/not_go/ask_user) | ✅ 수용 완료 |
+| 플랫폼 정규화 | ChatPlatform (telegram/slack/whatsapp 등) | 없음 | **보류** (현재 범위 밖) |
+| 캡차 처리 | 전용 UI + captcha 핸들러 | Chat Automation (captcha 핸들러 포함) | ✅ 수용 완료 |
+| 수정 루프 | revise → LLM 최적화 → 재실행 | run_human_loop() (run-decide-revise 사이클) | ✅ 수용 완료 |
 
 ### 3.9 학습 시스템
 
 | 항목 | web-testing | web-agentic | 판정 |
 |------|------------|------------|------|
-| 규칙 승격 | evaluateCanaryGate (회귀 체크 + 임계치) | rule_promoter.py | web-testing이 안전 |
-| 적응형 컨트롤러 | adaptive-controller.ts (반복 시 자동 승격) | 없음 | **수용 대상** |
-| 리플레이 저장 | replay-store.ts | 없음 | **수용 대상** |
-| DSPy/GEPA | Python 서비스로 분리 설계 | dspy_optimizer.py 직접 내장 | 각각 장점 |
+| 규칙 승격 | evaluateCanaryGate (회귀 체크 + 임계치) | rule_promoter.py + canary_gate.py | ✅ 수용 완료 |
+| 적응형 컨트롤러 | adaptive-controller.ts (반복 시 자동 승격) | adaptive_controller.py (반복 감지 + 캐시 실행) | ✅ 수용 완료 |
+| 리플레이 저장 | replay-store.ts | replay_store.py (aiosqlite + 키워드 퍼지 매칭) | ✅ 수용 완료 |
+| DSPy/GEPA | Python 서비스로 분리 설계 | dspy_optimizer.py — **placeholder** (DSPy 미연동, 경량 휴리스틱만 구현) | 양쪽 모두 미완성 |
 
 ### 3.10 운영 / 모니터링
 
 | 항목 | web-testing | web-agentic | 판정 |
 |------|------------|------------|------|
-| 메트릭 대시보드 | metrics-dashboard.ts (성공률, 지연, 비용) | FastAPI + React UI | web-agentic이 UI 강점 |
-| 회복력 오케스트레이터 | resilience-orchestrator.ts (병렬 시나리오 + 롤백) | 없음 | **수용 대상** |
+| 메트릭 대시보드 | metrics-dashboard.ts (성공률, 지연, 비용) | metrics_dashboard.py + FastAPI + React UI | ✅ 수용 완료 |
+| 회복력 오케스트레이터 | resilience-orchestrator.ts (병렬 시나리오 + 롤백) | resilience.py (병렬 시나리오 + 복구 + 롤백 로깅) | ✅ 수용 완료 |
 | 롤백 로그 | rollback-log.ts | version_manager.py (롤백 지원) | 유사 |
 | 동시성 | maxConcurrentSessions 제어 | ExecutorPool | 유사 |
 
@@ -162,8 +162,8 @@ LLM 의도 분석 → 캐시 조회 → LLM 요소 선택 → 실행 → 검증 
 
 | 항목 | web-testing | web-agentic | 판정 |
 |------|------------|------------|------|
-| 멀티프로바이더 | LLM_PROVIDER=gemini\|openai, 프로바이더별 env | Gemini only | **수용 대상** |
-| 모델 레지스트리 | model-registry.ts (지원 모델 목록 + 검증) | 환경변수 기본값 | **수용 대상** |
+| 멀티프로바이더 | LLM_PROVIDER=gemini\|openai, 프로바이더별 env | ILLMProvider Protocol (Gemini + OpenAI) | **수용 완료** |
+| 모델 레지스트리 | model-registry.ts (지원 모델 목록 + 검증) | model_registry.py (Flash/Pro 티어 + 자동 해석) | **수용 완료** |
 | 모델 정책 | model-policy.ts (코딩 vs 자동화 분리) | GEMINI_FLASH_MODEL / GEMINI_PRO_MODEL | 유사하지만 web-testing이 명확 |
 | 환경 파싱 | loadRuntimeEnv() (타입 안전) | config.py + settings.yaml | web-agentic이 YAML 지원 |
 
@@ -173,37 +173,37 @@ LLM 의도 분석 → 캐시 조회 → LLM 요소 선택 → 실행 → 검증 
 |------|------------|------------|------|
 | 이중 언어 | 모든 문서 영어/한국어 페어 | README + EVOLUTION-ENGINE 이중 | **web-testing 우위** |
 | Codex 지시서 | CODEX-RUNBOOK, CODEX-IMPLEMENTATION-PLAN 등 14개 | CLAUDE.md + agents/ | 각각 장점 |
-| 실행 아티팩트 | runs/samples/ (리뷰 + 리포트) | 없음 | **수용 대상** |
+| 실행 아티팩트 | runs/samples/ (리뷰 + 리포트) | 없음 | ⏳ 보류 |
 | 실사용 가이드 | CODEX-PRACTICAL-USAGE, CODEX-SDK-BACKEND-USAGE | API-REFERENCE | web-testing이 상세 |
 
 ---
 
 ## 4. web-testing에만 있는 기능 (web-agentic에 없음)
 
-### 4.1 즉시 수용 대상
+### 4.1 즉시 수용 대상 → ✅ 전부 수용 완료
 
-| # | 기능 | 설명 | 수용 이유 | 적용 위치 |
-|---|------|------|----------|----------|
-| A1 | **Chat Automation Backend** | pause/resume/cancel, 캡차 핸들러, SSE 로그 스트림, headful/headless 전환, 이미지 첨부 | 실제 운영에 필수적인 UX. 현재 web-agentic의 세션 API가 이를 지원하지 않음 | `src/api/routes/sessions.py` 확장 |
-| A2 | **메시지별 headful/headless 전환** | 사용자가 메시지마다 브라우저 모드 선택 | 디버깅/모니터링 유연성 | `src/api/session_manager.py` |
-| A3 | **스크린샷 체크포인트** | confidence + threshold + sensitiveAction 기반 go/not_go/ask_user 판단 | 민감 액션 전 안전 게이트 | 신규: `src/core/checkpoint.py` |
-| A4 | **적응형 컨트롤러** | 반복 실행 시 자동 규칙 승격, LLM 호출 점진 감소 | 비용 최적화의 핵심 | `src/learning/` 확장 |
-| A5 | **리플레이 저장소** | 성공 실행 트레이스 저장 → 오프라인 리플레이 평가 | 카나리 게이트 + 회귀 테스트 | 신규: `src/learning/replay_store.py` |
-| A6 | **카나리 게이트** | 회귀 체크 + 최소 개선 임계치 기반 승격 판단 | 안전한 규칙 승격 | `src/learning/rule_promoter.py` 강화 |
-| A7 | **회복력 오케스트레이터** | 병렬 시나리오 실행 + 자동 복구 + 롤백 로그 | 대규모 시나리오 실행에 필수 | 신규: `src/ops/resilience.py` |
+| # | 기능 | 상태 | 구현 위치 |
+|---|------|------|----------|
+| A1 | **Chat Automation Backend** | ✅ 완료 | `src/api/chat_automation.py`, `src/api/routes/sessions.py` |
+| A2 | **메시지별 headful/headless 전환** | ✅ 완료 | `src/api/session_manager.py` |
+| A3 | **스크린샷 체크포인트** | ✅ 완료 | `src/core/checkpoint.py` |
+| A4 | **적응형 컨트롤러** | ✅ 완료 | `src/core/adaptive_controller.py` |
+| A5 | **리플레이 저장소** | ✅ 완료 | `src/learning/replay_store.py` |
+| A6 | **카나리 게이트** | ✅ 완료 | `src/learning/canary_gate.py` |
+| A7 | **회복력 오케스트레이터** | ✅ 완료 | `src/core/resilience.py` |
 
-### 4.2 수용 검토 대상 (부분 수용)
+### 4.2 수용 검토 대상 → 대부분 수용 완료
 
-| # | 기능 | 설명 | 검토 사유 | 적용 방안 |
-|---|------|------|----------|----------|
-| B1 | **멀티 LLM 프로바이더** | Gemini + OpenAI 지원, 프로바이더별 env 분리 | OpenAI 추가 시 비용 모델 다변화 가능. 하지만 현재 Gemini 전용 설계와 충돌 | `src/ai/model_registry.py` 신규 + planner 추상화 |
-| B2 | **워크플로우 DSL 검증** | 노드 ID 중복, 참조 유효성, 필수 필드 검증 | web-agentic은 LLM이 동적 생성하므로 별도 검증기 필요 | `src/workflow/dsl_parser.py` 확장 |
-| B3 | **패치 검증기** | LLM이 생성한 패치의 스키마/형식 검증 | LLM 출력 신뢰도 향상에 유용. 현재 구조화 출력으로 일부 커버 | `src/ai/patch_system.py` 강화 |
-| B4 | **셀렉터 레시피 버전** | v001→v002 자동 증분 + 패치 이력 | 셀렉터 캐시에 버전 추적 추가 | `src/learning/pattern_db.py` 확장 |
-| B5 | **반복 아이템 판단 체인** | composite sheet → YOLO → VLM 폴백 → 역매핑 | 쇼핑몰 리스트 자동화에 유용. 현재 batch_vision_pipeline이 부분 커버 | `src/vision/` 확장 |
-| B6 | **자동 승인 정책** | 진화 작업의 자동 승인 (함수/boolean 정책) | 편의성 증가. 하지만 현재 "사람 검토 필수" 원칙과 충돌 | `src/evolution/pipeline.py` 옵션 추가 |
-| B7 | **채팅 플랫폼 정규화** | Telegram/Slack/WhatsApp 등 메시지 정규화 | 외부 연동 확장성. 하지만 현재 범위 밖 | 향후 `src/chat/` 모듈 |
-| B8 | **어댑터 패턴 (Executor)** | DeterministicAdapter 인터페이스로 실행 엔진 추상화 | 테스트 용이성 향상. 현재 Executor가 직접 구현 | `src/core/executor.py` 리팩토링 |
+| # | 기능 | 상태 | 구현 위치 / 비고 |
+|---|------|------|-----------------|
+| ~~B1~~ | ~~멀티 LLM 프로바이더~~ | ✅ 완료 | `src/ai/llm_provider.py` (ILLMProvider + Gemini/OpenAI) |
+| B2 | **워크플로우 DSL 검증** | ⏳ 보류 | LLM이 동적 생성하므로 우선순위 낮음 |
+| ~~B3~~ | ~~패치 검증기~~ | ✅ 완료 | `src/evolution/patch_validator.py` |
+| ~~B4~~ | ~~셀렉터 레시피 버전~~ | ✅ 완료 | `src/learning/recipe_version.py` |
+| ~~B5~~ | ~~반복 아이템 판단 체인~~ | ✅ 완료 | `src/vision/repeated_item_judgement.py` |
+| B6 | **자동 승인 정책** | ⏳ 보류 | "사람 검토 필수" 원칙과 충돌 |
+| B7 | **채팅 플랫폼 정규화** | ⏳ 보류 | 현재 범위 밖 |
+| ~~B8~~ | ~~어댑터 패턴 (Executor)~~ | ✅ 완료 | `src/core/executor_adapter.py` (IExecutor + MockExecutor) |
 
 ### 4.3 보류/비수용 대상
 
@@ -235,71 +235,17 @@ LLM 의도 분석 → 캐시 조회 → LLM 요소 선택 → 실행 → 검증 
 
 ---
 
-## 6. 수용 시 구현 계획 (우선순위 순)
+## 6. 수용 구현 현황 (전부 완료)
 
-### Phase 1: Chat Automation 기능 강화 (A1, A2, A3)
+> 아래 5개 Phase는 모두 **구현 완료**되었습니다. 상세 내용은 섹션 8 참조.
 
-**목표**: 세션 API를 Chat Automation 수준으로 업그레이드
-
-| 파일 | 변경 |
-|------|------|
-| `src/api/routes/sessions.py` | pause/resume/cancel 엔드포인트 추가 |
-| `src/api/session_manager.py` | ChatAutomationRunState 유사 상태 관리, headful/headless 턴별 전환, 자동 일시정지 |
-| `src/core/checkpoint.py` (신규) | evaluateCheckpoint() — confidence 기반 go/not_go/ask_user |
-| `src/api/models.py` | BrowserMode, RunStatus 확장 |
-| `evolution-ui/src/pages/Sessions.tsx` | pause/resume/cancel UI, 캡차 입력 UI |
-
-**예상 테스트**: ~20개
-
-### Phase 2: 학습 시스템 강화 (A4, A5, A6)
-
-**목표**: 반복 실행 시 LLM 호출을 점진적으로 줄이는 수렴 모델 구축
-
-| 파일 | 변경 |
-|------|------|
-| `src/learning/replay_store.py` (신규) | 성공 실행 트레이스 저장/조회 |
-| `src/learning/rule_promoter.py` | 카나리 게이트 추가 (회귀 체크 + 임계치) |
-| `src/learning/adaptive_controller.py` (신규) | 반복 감지 → 자동 승격 → LLM 호출 축소 |
-| `src/core/llm_orchestrator.py` | adaptive_controller 연결 |
-
-**예상 테스트**: ~15개
-
-### Phase 3: 운영 강화 (A7, B7)
-
-**목표**: 대규모 시나리오 실행 + 복구 자동화
-
-| 파일 | 변경 |
-|------|------|
-| `src/ops/resilience.py` (신규) | ResilienceOrchestrator — 병렬 시나리오 + 복구 + 롤백 |
-| `src/ops/rollback_log.py` (신규) | 롤백 이력 관리 |
-| `scripts/run_scenarios.py` | resilience orchestrator 연결 |
-
-**예상 테스트**: ~10개
-
-### Phase 4: 비전 확장 (B5)
-
-**목표**: 반복 아이템 판단 체인 (쇼핑몰 리스트 자동화)
-
-| 파일 | 변경 |
-|------|------|
-| `src/vision/repeated_item.py` (신규) | composite sheet → YOLO → VLM 폴백 → 역매핑 체인 |
-| `src/vision/composite_sheet.py` (신규) | 아이템 이미지 → 그리드 합성 + 매니페스트 |
-| `src/vision/image_batcher.py` | composite sheet 연동 |
-
-**예상 테스트**: ~10개
-
-### Phase 5: 모델 추상화 (B1, B3, B8)
-
-**목표**: 멀티 LLM 프로바이더 지원 + 패치 검증 + Executor 추상화
-
-| 파일 | 변경 |
-|------|------|
-| `src/ai/model_registry.py` (신규) | LLM 프로바이더 레지스트리 (Gemini + OpenAI) |
-| `src/ai/patch_system.py` | 패치 스키마 검증 강화 |
-| `src/core/executor.py` | ExecutorAdapter 인터페이스 추출 |
-| `src/ai/llm_planner.py` | model_registry 연동 |
-
-**예상 테스트**: ~12개
+| Phase | 내용 | 상태 | 테스트 |
+|-------|------|------|--------|
+| Phase 1 | Chat Automation (A1, A2, A3) | ✅ 완료 | ~20개 |
+| Phase 2 | Learning 강화 (A4, A5, A6) | ✅ 완료 | ~15개 |
+| Phase 3 | Ops 강화 (A7) | ✅ 완료 | ~10개 |
+| Phase 4 | Vision 확장 (B5) | ✅ 완료 | ~10개 |
+| Phase 5 | Model 추상화 (B1, B3, B8) | ✅ 완료 | ~12개 |
 
 ---
 
@@ -350,6 +296,13 @@ LLM 의도 분석 → 캐시 조회 → LLM 요소 선택 → 실행 → 검증 
 8. **Scenario Pack Builder** — baseline + exception matrix 시나리오 생성 ✅
 9. **Auto-Improvement Orchestrator** — 실패 시 자동 진화 트리거 ✅
 
+### Research Wave 수용 완료 (4개 연구 기반 기능, 53 tests)
+
+1. **Similo 다속성 Fingerprint** (ACM TOSEM 2023) — LLM 호출 없이 다속성 유사도 매칭으로 셀렉터 복구 ✅
+2. **Adaptive Plan Caching** (NeurIPS 2025) — 키워드 퍼지 매칭 + 플랜 적응으로 반복 비용 50% 절감 ✅
+3. **Cascaded Flash-First Router** (BudgetMLAgent 2025) — Flash 우선 라우팅으로 전체 비용 30-50% 절감 ✅
+4. **Self-Healing 6분류** (QA Wolf 2024) — timing/hidden/stale/navigation/data 실패 전용 복구 전략 ✅
+
 ### 비수용 항목
 
 1. **Rule-first 실행 모델** — LLM-First 유지
@@ -359,13 +312,13 @@ LLM 의도 분석 → 캐시 조회 → LLM 요소 선택 → 실행 → 검증 
 
 ---
 
-## 9. 예상 작업량
+## 9. 구현 결과 요약
 
-| Phase | 신규 파일 | 수정 파일 | 테스트 수 | 복잡도 |
-|-------|----------|----------|----------|--------|
-| Phase 1: Chat Automation | 1 | 4 | ~20 | 중 |
-| Phase 2: Learning 강화 | 2 | 2 | ~15 | 중 |
-| Phase 3: Ops 강화 | 2 | 1 | ~10 | 하 |
-| Phase 4: Vision 확장 | 2 | 1 | ~10 | 중 |
-| Phase 5: Model 추상화 | 1 | 3 | ~12 | 상 |
-| **합계** | **8** | **11** | **~67** | — |
+| Wave | 기능 수 | 테스트 수 | 상태 |
+|------|---------|----------|------|
+| Wave 1 (web-testing 수용) | 9개 | 110개 | ✅ 완료 |
+| Wave 2 (추가 수용) | 9개 | 105개 | ✅ 완료 |
+| Research Wave (연구 기반) | 4개 | 53개 | ✅ 완료 |
+| **합계** | **22개** | **268개** | ✅ 전부 완료 |
+
+> 총 테스트: 1260개 (unit 1084 + integration 95 + E2E 57 + skipped 24)

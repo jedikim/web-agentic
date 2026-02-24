@@ -4,13 +4,13 @@
 
 ## 1. Overview
 
-The web-agentic project maintains **823 total tests across 40 test files**, organized in a 4-tier test pyramid:
+The web-agentic project maintains **1260 total tests across 52 test files**, organized in a 4-tier test pyramid:
 
 | Tier | Tests | Files | Purpose |
 |------|------:|------:|---------|
-| Unit | 685 | 32 | Isolated module logic |
+| Unit | 1084 | 44 | Isolated module logic |
 | Integration | 95 | 3 | Module wiring and API endpoints |
-| E2E Pipeline | 43 | 7 | Browser automation scenarios |
+| E2E Pipeline | 55 | 8 | Browser automation scenarios |
 | UI E2E | 6 | 1 | Full-stack UI + API verification |
 
 **Tools:**
@@ -24,11 +24,11 @@ All async tests use `pytest-asyncio` with **auto mode** (`asyncio_mode = "auto"`
 
 ```mermaid
 graph TD
-    subgraph pyramid["Test Pyramid (823 total)"]
+    subgraph pyramid["Test Pyramid (1260 total)"]
         UI["UI E2E Tests<br/>6 tests in 1 file"]
-        E2E["E2E Pipeline Tests<br/>43 tests in 7 files"]
+        E2E["E2E Pipeline Tests<br/>55 tests in 8 files"]
         INT["Integration Tests<br/>95 tests in 3 files"]
-        UNIT["Unit Tests<br/>685 tests in 32 files"]
+        UNIT["Unit Tests<br/>1084 tests in 44 files"]
     end
 
     UI --> E2E
@@ -62,7 +62,7 @@ The pyramid follows the standard testing principle: **more unit tests at the bas
 
 ## 4. Test Categories
 
-### 4.1 Unit Tests (685 tests, 32 files)
+### 4.1 Unit Tests (1084 tests, 44 files)
 
 Unit tests validate each module's logic in isolation. External dependencies (LLM APIs, browsers, databases) are mocked.
 
@@ -88,12 +88,16 @@ Unit tests validate each module's logic in isolation. External dependencies (LLM
 | `test_handoff.py` | 35 | Human handoff interface |
 | `test_memory_manager.py` | 44 | 4-tier memory system |
 | `test_fallback_router.py` | 55 | Failure classification and routing |
-| `test_dspy_optimizer.py` | 16 | DSPy optimization |
+| `test_dspy_optimizer.py` | 16 | Prompt optimization placeholder (DSPy not integrated) |
 | `test_evolution_pipeline.py` | 11 | Evolution pipeline state machine |
 | `test_dsl_parser.py` | 20 | YAML DSL parsing |
 | `test_llm_orchestrator.py` | 5 | LLM-first orchestrator |
 | `test_rule_engine.py` | 26 | Rule matching engine |
 | `test_evolution_db.py` | 20 | Evolution database operations |
+| `test_element_fingerprint.py` | 12 | Similo multi-attribute fingerprint matching |
+| `test_plan_cache.py` | 16 | Keyword extraction and fuzzy plan adaptation |
+| `test_cascaded_router.py` | 12 | Flash-first routing and escalation |
+| `test_self_healing.py` | 13 | 6-category failure classification and healing |
 
 ### 4.2 Integration Tests (95 tests, 3 files)
 

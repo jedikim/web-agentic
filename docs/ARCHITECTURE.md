@@ -51,10 +51,20 @@ Orchestrator
 │   ├── Policy Memory      — SQLite (영구)
 │   └── Artifact Memory    — 파일시스템 (TTL)
 ├── Handoff Manager        — 사람 위임
-└── Learning
-    ├── Pattern DB         — SQLite 패턴 기록
-    ├── Rule Promoter      — 자동 규칙 승격
-    └── DSPy Optimizer     — 프롬프트 최적화 (선택)
+├── Learning
+│   ├── Pattern DB         — SQLite 패턴 기록
+│   ├── Rule Promoter      — 자동 규칙 승격
+│   ├── Element Fingerprint — Similo 다속성 매칭 (LLM-free 셀렉터 복구)
+│   ├── Plan Cache         — 키워드 퍼지 매칭 + 플랜 적응
+│   ├── Replay Store       — 실행 이력 저장 (키워드 포함)
+│   └── DSPy Optimizer     — 프롬프트 최적화 placeholder (DSPy 미연동, 경량 휴리스틱)
+├── AI
+│   ├── LLM Planner        — Gemini/OpenAI 멀티프로바이더
+│   ├── Cascaded Router    — Flash-first 라우팅 + Pro 에스컬레이션
+│   └── Context Reducer    — LLM 컨텍스트 최적화
+└── Self-Healing
+    ├── Failure Classifier — 6분류 (selector/timing/hidden/stale/nav/data)
+    └── Healing Planner    — 분류별 전용 복구 전략
 ```
 
 ## 인터페이스 (Protocol 정의)
@@ -252,3 +262,55 @@ async def execute_step(self, step: StepDefinition) -> StepResult:
 - 규칙 파일: `config/rules/*.yaml` — `RuleEngine.__init__()` 에서 자동 로드
 - 동의어: `config/synonyms.yaml` — `RuleEngine.__init__()` 에서 자동 로드
 - 워크플로우: `config/workflows/*.yaml` — `parse_workflow()` 로 명시적 로드
+
+## Research Wave 모듈 (v3.1)
+
+### R1: Similo 다속성 Fingerprint (`src/learning/element_fingerprint.py`)
+
+셀렉터가 깨졌을 때 LLM 호출 없이 다속성 유사도 매칭으로 요소 복구.
+7가지 속성(tag, role, text, class_list, nearby_text, bbox, attributes_hash)의 가중 유사도를 계산하여
+임계값(기본 0.6) 이상인 후보를 자동 선택.
+
+```
+셀렉터 실패 → Element Fingerprint 매칭 (비용 $0)
+    ├─ 매칭 성공 → 재시도 (LLM 호출 생략)
+    └─ 매칭 실패 → LLM 패치 요청 (기존 플로우)
+```
+
+### R2: Adaptive Plan Caching (`src/learning/plan_cache.py`)
+
+exact match 실패 시 키워드 Jaccard 유사도로 퍼지 매칭.
+유사한 과거 플랜의 인자만 교체하여 적응 재사용.
+
+```
+새 인텐트 → exact match 조회 → 실패
+    → 키워드 추출 (EN/KO 불용어 제거)
+    → Jaccard 유사도 기반 퍼지 매칭
+    → 인자 diff → 플랜 적응
+```
+
+### R3: Cascaded Flash-First Router (`src/ai/cascaded_router.py`)
+
+항상 Flash(저비용) 모델을 먼저 시도. 신뢰도 < 0.7 또는 파싱 실패 시만 Pro 에스컬레이션.
+complexity별 성공률 추적으로 라우팅 최적화.
+
+```
+인텐트 → 복잡도 분류 (SIMPLE/MODERATE/COMPLEX)
+    → Flash 모델 시도
+    → 신뢰도 체크
+        ├─ >= 임계값 → Flash 결과 사용
+        └─ < 임계값 → Pro 에스컬레이션
+```
+
+### R4: Self-Healing 6분류 (`src/core/self_healing.py`)
+
+셀렉터 실패(28%) 외에 timing/hidden/stale/navigation/data 실패도 전용 복구 전략 적용.
+
+| 분류 | 우선 전략 | 예시 에러 |
+|------|----------|----------|
+| selector_not_found | RE_EXTRACT | 셀렉터 미발견 |
+| timing_timeout | INCREASE_TIMEOUT | TimeoutError |
+| element_hidden | SCROLL_INTO_VIEW | "not visible" |
+| stale_element | WAIT_AND_RETRY | "detached from DOM" |
+| navigation_incomplete | WAIT_FOR_NETWORK | "net::err" |
+| data_mismatch | RE_EXTRACT | "assertion failed" |
