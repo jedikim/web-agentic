@@ -450,6 +450,42 @@ class ImageBatcher:
 # ── Factory ─────────────────────────────────────────
 
 
+def create_grid_from_images(
+    images: list[bytes],
+    columns: int = 4,
+    cell_width: int = 200,
+    cell_height: int = 200,
+) -> bytes:
+    """Create a grid image from raw image bytes with fixed cell sizes.
+
+    Args:
+        images: List of image bytes (PNG/JPEG).
+        columns: Number of columns in grid.
+        cell_width: Width of each cell in pixels.
+        cell_height: Height of each cell in pixels.
+
+    Returns:
+        Grid image as PNG bytes.
+    """
+    Image, _, _ = _import_pil()
+
+    rows = math.ceil(len(images) / columns) if images else 1
+    grid_w = columns * cell_width
+    grid_h = rows * cell_height
+    grid = Image.new("RGB", (grid_w, grid_h), (255, 255, 255))
+
+    for idx, img_bytes in enumerate(images):
+        img = Image.open(io.BytesIO(img_bytes))
+        img = img.resize((cell_width, cell_height), Image.Resampling.LANCZOS)
+        col = idx % columns
+        row = idx // columns
+        grid.paste(img, (col * cell_width, row * cell_height))
+
+    buf = io.BytesIO()
+    grid.save(buf, format="PNG")
+    return buf.getvalue()
+
+
 def create_image_batcher(
     max_batch_size: int = 4,
     target_size: tuple[int, int] = (1024, 768),

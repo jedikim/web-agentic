@@ -16,6 +16,8 @@ from typing import Any
 from google import genai
 from google.genai import types
 
+from src.evolution.patch_validator import validate_patch, validate_python_syntax
+
 logger = logging.getLogger(__name__)
 
 # ── Cost tracking ────────────────────────────────────
@@ -165,8 +167,56 @@ class EvolutionCodeGenerator:
         response_text, tokens = await self._call_gemini(prompt)
         self.usage.record(self._model_name, tokens)
 
-        changes = self._parse_response(response_text)
-        return changes
+        result = self._parse_response(response_text)
+
+        # Validate generated changes
+        valid, errors = self._validate_changes(result.changes)
+        if not valid:
+            logger.warning("Patch validation failed, retrying once: %s", errors)
+            response_text2, tokens2 = await self._call_gemini(prompt)
+            self.usage.record(self._model_name, tokens2)
+            result = self._parse_response(response_text2)
+            valid2, errors2 = self._validate_changes(result.changes)
+            if not valid2:
+                logger.warning("Patch validation failed after retry: %s", errors2)
+
+        return result
+
+    def _validate_changes(self, changes: list[CodeChange]) -> tuple[bool, list[str]]:
+        """Validate a list of CodeChanges using patch_validator.
+
+        Args:
+            changes: List of CodeChange objects to validate.
+
+        Returns:
+            Tuple of (all_valid, list_of_error_strings).
+        """
+        all_errors: list[str] = []
+        for change in changes:
+            patch_dict = {
+                "file_path": change.file_path,
+                "change_type": change.change_type,
+                "new_content": change.new_content,
+            }
+            result = validate_patch(patch_dict)
+            if not result.valid:
+                all_errors.extend(
+                    f"{change.file_path}: {e}" for e in result.errors
+                )
+
+            # Python syntax check for .py files
+            if (
+                change.file_path.endswith(".py")
+                and change.change_type != "delete"
+                and change.new_content
+            ):
+                syntax_result = validate_python_syntax(change.new_content)
+                if not syntax_result.valid:
+                    all_errors.extend(
+                        f"{change.file_path}: {e}" for e in syntax_result.errors
+                    )
+
+        return (len(all_errors) == 0, all_errors)
 
     def _load_conventions(self) -> str:
         """Load a subset of CLAUDE.md for context."""

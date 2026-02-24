@@ -20,7 +20,7 @@ import hashlib
 import json
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -134,6 +134,18 @@ WHERE site = ?
 ORDER BY success_count DESC
 """
 
+_GET_SUCCESS_RATE_SQL = """\
+SELECT success_count, fail_count FROM patterns
+WHERE site = ? AND intent = ? AND selector = ?
+"""
+
+_GET_BASELINE_RATE_SQL = """\
+SELECT success_count, fail_count FROM patterns
+WHERE site = ? AND intent = ?
+ORDER BY success_count DESC
+LIMIT 1
+"""
+
 _DELETE_SQL = "DELETE FROM patterns WHERE pattern_id = ?"
 
 _GET_BY_ID_SQL = """\
@@ -208,7 +220,7 @@ class PatternDB:
         """
         await self._ensure_init()
         pattern_id = _generate_pattern_id(intent, site, selector)
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
 
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
@@ -239,7 +251,7 @@ class PatternDB:
         """
         await self._ensure_init()
         pattern_id = _generate_pattern_id(intent, site, selector)
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
 
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
@@ -327,6 +339,54 @@ class PatternDB:
             cursor = await db.execute(_DELETE_SQL, (pattern_id,))
             await db.commit()
             return cursor.rowcount > 0  # type: ignore[return-value]
+
+    async def get_success_rate(
+        self, site: str, intent: str, selector: str
+    ) -> tuple[int, int, float]:
+        """Get success rate for a specific selector.
+
+        Args:
+            site: Hostname or glob.
+            intent: Natural-language intent.
+            selector: CSS selector.
+
+        Returns:
+            Tuple of (success_count, fail_count, rate).
+        """
+        await self._ensure_init()
+        async with aiosqlite.connect(self._db_path) as db:
+            cursor = await db.execute(
+                _GET_SUCCESS_RATE_SQL, (site, intent, selector)
+            )
+            row = await cursor.fetchone()
+            if not row:
+                return (0, 0, 0.0)
+            success, fail = row
+            total = success + fail
+            rate = success / total if total > 0 else 0.0
+            return (success, fail, rate)
+
+    async def get_baseline_rate(self, site: str, intent: str) -> float | None:
+        """Get the best success rate among all selectors for this site+intent.
+
+        Args:
+            site: Hostname or glob.
+            intent: Natural-language intent.
+
+        Returns:
+            Best success rate, or ``None`` if no patterns exist.
+        """
+        await self._ensure_init()
+        async with aiosqlite.connect(self._db_path) as db:
+            cursor = await db.execute(
+                _GET_BASELINE_RATE_SQL, (site, intent)
+            )
+            row = await cursor.fetchone()
+            if not row:
+                return None
+            success, fail = row
+            total = success + fail
+            return success / total if total > 0 else None
 
     async def close(self) -> None:
         """Close the database (no-op for aiosqlite per-call connections).

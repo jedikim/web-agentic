@@ -43,3 +43,6 @@ data/*.db
 
 # JPEG screenshots
 *.jpeg
+
+# Temp comparison repos
+temp/

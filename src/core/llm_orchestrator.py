@@ -9,6 +9,7 @@ Flow per step:
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import random
 import time
@@ -17,6 +18,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from src.core.checkpoint import CheckpointConfig, CheckpointDecision, evaluate_checkpoint
 from src.core.types import (
     AutomationError,
     ClickOptions,
@@ -32,9 +34,6 @@ from src.core.types import (
     StepContext,
     StepDefinition,
     StepResult,
-    VerifyCondition,
-    VerifyResult,
-    WaitCondition,
 )
 from src.vision.batch_vision_pipeline import BatchVisionPipeline
 
@@ -92,6 +91,10 @@ class LLMFirstOrchestrator:
         jitter_ratio: float = 0.3,
         max_consecutive_failures: int = 3,
         enable_replanning: bool = True,
+        checkpoint_config: CheckpointConfig | None = None,
+        adaptive_controller: Any | None = None,
+        pause_event: asyncio.Event | None = None,
+        cancel_flag: Any | None = None,  # object with .cancel_flag bool attribute
     ) -> None:
         self._executor = executor
         self._extractor = extractor
@@ -111,6 +114,10 @@ class LLMFirstOrchestrator:
         self._jitter_ratio = jitter_ratio
         self._max_consecutive_failures = max_consecutive_failures
         self._enable_replanning = enable_replanning
+        self._checkpoint_config = checkpoint_config
+        self._adaptive = adaptive_controller
+        self._pause_event = pause_event
+        self._cancel_state = cancel_flag
         self._cost_at_run_start = 0.0
 
     def _emit(self, info: ProgressInfo) -> None:
@@ -153,6 +160,24 @@ class LLMFirstOrchestrator:
             # Re-read page state after CAPTCHA
             page_state = await self._extractor.extract_state(page)
 
+        # Step 0: Adaptive cache — reuse steps from previous successful runs
+        site = urlparse(page_state.url).hostname or "*"
+        if self._adaptive is not None:
+            cached_steps = await self._adaptive.get_cached_steps(site, intent)
+            if cached_steps is not None:
+                logger.info("Adaptive cache HIT for %s @ %s", intent, site)
+                # Convert raw dicts back to StepDefinition objects
+                steps = [
+                    StepDefinition(**s) if isinstance(s, dict) else s
+                    for s in cached_steps
+                ]
+                result = RunResult(success=True, planned_steps=list(steps))
+                self._cost_at_run_start = self._planner.usage.total_cost_usd
+                # Execute cached steps (fall through to step-execution loop)
+                return await self._execute_cached_steps(
+                    steps, result, page, page_state, intent, site,
+                )
+
         # Step 1: LLM plans the steps
         logger.info("Planning: %s", intent)
         steps = await self._planner.plan_with_context(
@@ -179,6 +204,14 @@ class LLMFirstOrchestrator:
         # Step 2: Execute each step
         i = 0
         while i < len(steps):
+            # Chat automation: check pause/cancel
+            if self._pause_event is not None:
+                await self._pause_event.wait()
+            if self._cancel_state is not None and self._cancel_state.cancel_flag:
+                logger.info("Run canceled by user")
+                result.success = False
+                break
+
             step = steps[i]
             logger.info("--- Step %d/%d: %s ---", i + 1, len(steps), step.intent)
             self._emit(ProgressInfo(
@@ -311,6 +344,113 @@ class LLMFirstOrchestrator:
             total_steps=len(result.step_results),
             message="success" if result.success else "failed",
         ))
+
+        # Record execution for adaptive caching
+        if self._adaptive is not None:
+            run_site = urlparse(page_state.url).hostname or "*"
+            step_dicts = [
+                {"step_id": s.step_id, "intent": s.intent,
+                 "node_type": s.node_type, "selector": s.selector,
+                 "arguments": s.arguments}
+                for s in steps
+            ]
+            await self._adaptive.record_execution(
+                run_site, intent, step_dicts, result.total_cost_usd, result.success,
+            )
+
+        return result
+
+    async def _execute_cached_steps(
+        self,
+        steps: list[StepDefinition],
+        result: RunResult,
+        page: Any,
+        page_state: PageState,
+        intent: str,
+        site: str,
+    ) -> RunResult:
+        """Execute steps from adaptive cache (same loop as run but skips planning)."""
+        consecutive_failures = 0
+
+        i = 0
+        while i < len(steps):
+            step = steps[i]
+            logger.info("--- Cached Step %d/%d: %s ---", i + 1, len(steps), step.intent)
+            self._emit(ProgressInfo(
+                event=ProgressEvent.STEP_STARTED,
+                step_id=step.step_id,
+                step_index=i,
+                total_steps=len(steps),
+                message=step.intent,
+            ))
+            step_result = await self._execute_step_with_retry(step, page_state)
+            result.step_results.append(step_result)
+
+            self._emit(ProgressInfo(
+                event=(
+                    ProgressEvent.STEP_COMPLETED
+                    if step_result.success
+                    else ProgressEvent.STEP_FAILED
+                ),
+                step_id=step.step_id,
+                step_index=i,
+                total_steps=len(steps),
+                method=step_result.method,
+                message=step.intent,
+                result=step_result,
+            ))
+
+            ss_path = await self._take_screenshot(f"step_{i + 1}_{step.step_id}")
+            if ss_path:
+                result.screenshots.append(ss_path)
+
+            result.total_tokens += step_result.tokens_used
+            result.total_cost_usd += step_result.cost_usd
+
+            if not step_result.success:
+                consecutive_failures += 1
+                if consecutive_failures >= self._max_consecutive_failures:
+                    result.success = False
+                    break
+                result.success = False
+                break
+            else:
+                consecutive_failures = 0
+
+            await self._jittered_wait(500)
+            try:
+                await page.wait_for_load_state("domcontentloaded", timeout=5000)
+            except Exception:
+                pass
+            try:
+                page_state = await self._extractor.extract_state(page)
+            except Exception:
+                await self._jittered_wait(2000)
+                page_state = await self._extractor.extract_state(page)
+
+            i += 1
+
+        usage = self._planner.usage
+        result.total_tokens = usage.total_tokens
+        result.total_cost_usd = usage.total_cost_usd
+
+        self._emit(ProgressInfo(
+            event=ProgressEvent.RUN_COMPLETED,
+            total_steps=len(result.step_results),
+            message="success" if result.success else "failed",
+        ))
+
+        # Record result back
+        if self._adaptive is not None:
+            step_dicts = [
+                {"step_id": s.step_id, "intent": s.intent,
+                 "node_type": s.node_type, "selector": s.selector,
+                 "arguments": s.arguments}
+                for s in steps
+            ]
+            await self._adaptive.record_execution(
+                site, intent, step_dicts, result.total_cost_usd, result.success,
+            )
 
         return result
 
@@ -725,6 +865,27 @@ class LLMFirstOrchestrator:
             result = await self._execute_step(step)
 
             if result.success:
+                # Checkpoint evaluation: gate progression based on confidence
+                if self._checkpoint_config is not None:
+                    confidence = 0.9 if result.method == "CACHE" else 0.75
+                    cp_result = evaluate_checkpoint(
+                        confidence=confidence,
+                        config=self._checkpoint_config,
+                    )
+                    if cp_result.decision == CheckpointDecision.NOT_GO:
+                        logger.warning(
+                            "Checkpoint NOT_GO: %s", cp_result.reason,
+                        )
+                        result = StepResult(
+                            step_id=step.step_id,
+                            success=False,
+                            method=result.method,
+                            latency_ms=result.latency_ms,
+                        )
+                        last_result = result
+                        continue
+                    # ASK_USER: proceed as GO (no handoff wiring yet)
+
                 if self._router is not None and last_result is not None:
                     # Record successful recovery
                     fc = result.failure_code or FailureCode.SELECTOR_NOT_FOUND
@@ -894,8 +1055,9 @@ class LLMFirstOrchestrator:
                 )
 
             # Get screenshot dimensions.
-            from PIL import Image as _PILImage
             import io as _io
+
+            from PIL import Image as _PILImage
             img = _PILImage.open(_io.BytesIO(screenshot))
             ss_size = img.size  # (w, h)
 

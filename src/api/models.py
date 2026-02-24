@@ -5,7 +5,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-
 # ── Evolution ────────────────────────────────────────
 
 
@@ -246,3 +245,33 @@ class OneShotResponse(BaseModel):
     error_msg: str | None = None
     screenshots: list[str]
     final_url: str | None = None
+
+
+# ── Chat Automation ─────────────────────────────────
+
+
+class ChatStartRequest(BaseModel):
+    """Request to start a chat automation run."""
+    instruction: str
+    headless: bool = True
+
+
+class ChatStartResponse(BaseModel):
+    """Response after starting a chat run."""
+    run_id: str
+    status: str
+
+
+class ChatStatusResponse(BaseModel):
+    """Status of a chat automation run."""
+    run_id: str
+    session_id: str
+    status: str
+    current_step: int
+    total_steps: int
+    error: str | None = None
+
+
+class CaptchaSubmitRequest(BaseModel):
+    """Request to submit a CAPTCHA solution."""
+    solution: str

@@ -16,6 +16,8 @@ from __future__ import annotations
 import logging
 
 from src.ai.llm_planner import create_llm_planner
+from src.ai.llm_provider import ILLMProvider
+from src.core.adaptive_controller import AdaptiveController
 from src.core.config import StealthConfig
 from src.core.executor import Executor, create_executor
 from src.core.extractor import DOMExtractor
@@ -23,6 +25,7 @@ from src.core.fallback_router import FallbackRouter
 from src.core.llm_orchestrator import LLMFirstOrchestrator, RunResult
 from src.core.selector_cache import SelectorCache
 from src.core.verifier import Verifier
+from src.learning.replay_store import ReplayStore
 from src.vision.batch_vision_pipeline import BatchVisionPipeline
 from src.vision.coord_mapper import CoordMapper
 from src.vision.image_batcher import ImageBatcher
@@ -44,6 +47,7 @@ class WebAgent:
         max_total_cost: Maximum cumulative USD cost across all runs.
         cache_db_path: Path to the SQLite selector cache database.
         screenshot_dir: Directory for step screenshots.
+        llm_provider: Optional LLM provider for multi-provider support.
     """
 
     def __init__(
@@ -56,6 +60,9 @@ class WebAgent:
         screenshot_dir: str = "data/screenshots",
         enable_vision: bool = False,
         stealth_level: str = "standard",
+        enable_adaptive: bool = False,
+        replay_db_path: str = "data/replay.db",
+        llm_provider: ILLMProvider | None = None,
     ) -> None:
         self._headless = headless
         self._max_cost_per_run = max_cost_per_run
@@ -64,9 +71,13 @@ class WebAgent:
         self._screenshot_dir = screenshot_dir
         self._enable_vision = enable_vision
         self._stealth_level = stealth_level
+        self._enable_adaptive = enable_adaptive
+        self._replay_db_path = replay_db_path
+        self._llm_provider = llm_provider
 
         self._executor: Executor | None = None
         self._cache: SelectorCache | None = None
+        self._replay_store: ReplayStore | None = None
         self._orchestrator: LLMFirstOrchestrator | None = None
         self._total_cost: float = 0.0
         self._started: bool = False
@@ -92,7 +103,7 @@ class WebAgent:
         await self._cache.init()
 
         extractor = DOMExtractor()
-        planner = create_llm_planner()
+        planner = create_llm_planner(provider=self._llm_provider)
         verifier = Verifier()
 
         # Optional vision components.
@@ -112,6 +123,13 @@ class WebAgent:
                 coord_mapper=coord_mapper,
             )
 
+        # Optional adaptive controller
+        adaptive_controller: AdaptiveController | None = None
+        if self._enable_adaptive:
+            self._replay_store = ReplayStore(db_path=self._replay_db_path)
+            await self._replay_store.init()
+            adaptive_controller = AdaptiveController(self._replay_store)
+
         self._orchestrator = LLMFirstOrchestrator(
             executor=self._executor,
             extractor=extractor,
@@ -124,6 +142,7 @@ class WebAgent:
             vlm_client=vlm_client,
             batch_vision=batch_vision,
             fallback_router=FallbackRouter(),
+            adaptive_controller=adaptive_controller,
         )
 
         self._started = True

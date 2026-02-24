@@ -327,6 +327,49 @@ class Executor:
         """
         return self._page
 
+    async def get_page_state(self) -> dict[str, Any]:
+        """Return a snapshot of the current page state.
+
+        Returns:
+            Dictionary with url, title, and viewport information.
+        """
+        return {
+            "url": self._page.url,
+            "title": await self._page.title(),
+        }
+
+    async def evaluate(self, expression: str) -> object:
+        """Evaluate a JavaScript expression on the page.
+
+        Args:
+            expression: JavaScript expression to evaluate.
+
+        Returns:
+            The result of the expression evaluation.
+
+        Raises:
+            NetworkError: If the evaluation fails.
+        """
+        try:
+            return await self._page.evaluate(expression)
+        except PlaywrightError as err:
+            raise _map_playwright_error(err) from err
+
+    async def wait_for_selector(self, selector: str, timeout: int = 5000) -> None:
+        """Wait for a CSS selector to appear on the page.
+
+        Args:
+            selector: CSS selector to wait for.
+            timeout: Maximum wait time in milliseconds.
+
+        Raises:
+            SelectorNotFoundError: If the selector is not found within timeout.
+        """
+        try:
+            await self._page.wait_for_selector(selector, timeout=timeout)
+        except PlaywrightError as err:
+            raise _map_playwright_error(err, selector) from err
+
     async def close(self) -> None:
         """Close the browser and release resources.
 

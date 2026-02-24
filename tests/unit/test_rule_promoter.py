@@ -47,6 +47,9 @@ def mock_pattern_db() -> MagicMock:
     db.get_promotable = AsyncMock(return_value=[])
     db.record_success = AsyncMock()
     db.record_failure = AsyncMock()
+    # Canary gate support: default to passing canary checks
+    db.get_success_rate = AsyncMock(return_value=(10, 0, 1.0))
+    db.get_baseline_rate = AsyncMock(return_value=None)
     return db
 
 

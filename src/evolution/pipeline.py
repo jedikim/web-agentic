@@ -11,13 +11,15 @@ On test failure, retries once (re-analyze → re-generate).
 from __future__ import annotations
 
 import logging
+from datetime import UTC
 from typing import Any
 
 from src.evolution.analyzer import FailureAnalyzer
 from src.evolution.code_generator import EvolutionCodeGenerator
 from src.evolution.db import EvolutionDB
 from src.evolution.notifier import Notifier
-from src.evolution.sandbox import Sandbox, SandboxTestResult
+from src.evolution.patch_validator import validate_patch, validate_python_syntax
+from src.evolution.sandbox import Sandbox
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +86,33 @@ class EvolutionPipeline:
             await self._transition(
                 run_id, "failed",
                 error_message="LLM generated no code changes",
+            )
+            return
+
+        # Validate patches before proceeding to testing
+        validation_errors: list[str] = []
+        for change in gen_result.changes:
+            patch_dict = {
+                "file_path": change.file_path,
+                "change_type": change.change_type,
+                "new_content": change.new_content,
+            }
+            vr = validate_patch(patch_dict)
+            if not vr.valid:
+                validation_errors.extend(vr.errors)
+            if (
+                change.file_path.endswith(".py")
+                and change.change_type != "delete"
+                and change.new_content
+            ):
+                sr = validate_python_syntax(change.new_content)
+                if not sr.valid:
+                    validation_errors.extend(sr.errors)
+
+        if validation_errors:
+            await self._transition(
+                run_id, "failed",
+                error_message=f"Patch validation failed: {'; '.join(validation_errors[:5])}",
             )
             return
 
@@ -176,8 +205,8 @@ class EvolutionPipeline:
         if error_message:
             kwargs["error_message"] = error_message
         if status in ("merged", "failed", "rejected"):
-            from datetime import datetime, timezone
-            kwargs["completed_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            from datetime import datetime
+            kwargs["completed_at"] = datetime.now(UTC).isoformat(timespec="seconds")
 
         await self._db.update_evolution_run(run_id, **kwargs)
         await self._notifier.publish("evolution_status", {

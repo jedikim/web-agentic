@@ -23,6 +23,7 @@ browser:
 
 # LLM settings
 llm:
+  provider: "gemini"  # gemini | openai
   tier1_model: "gemini-3-flash-preview"
   tier2_model: "gemini-3.1-pro-preview"
   confidence_threshold: 0.7
@@ -123,6 +124,17 @@ retry:
   jitter_ratio: 0.3
   max_consecutive_failures: 3
   enable_replanning: true
+
+# Screenshot checkpoint gating
+checkpoint:
+  go_threshold: 0.8
+  ask_threshold: 0.5
+  enabled: true
+
+# Adaptive replay caching
+adaptive:
+  min_successes: 3
+  enabled: true
 
 # Logging
 logging:

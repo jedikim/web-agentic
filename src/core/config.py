@@ -13,6 +13,9 @@ from typing import Any
 
 import yaml
 
+from src.core.checkpoint import CheckpointConfig
+from src.learning.replay_store import AdaptiveConfig
+
 logger = logging.getLogger(__name__)
 
 _DEFAULT_SETTINGS_PATH = "config/settings.yaml"
@@ -125,6 +128,24 @@ class RetryConfig:
     enable_replanning: bool = True
 
 
+# ── LLM ─────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class LLMConfig:
+    """LLM provider and model configuration.
+
+    Attributes:
+        provider: LLM provider name ('gemini' or 'openai').
+        flash_model: Tier-1 (fast/cheap) model name.
+        pro_model: Tier-2 (capable) model name.
+    """
+
+    provider: str = "gemini"
+    flash_model: str = "gemini-2.0-flash"
+    pro_model: str = "gemini-2.5-pro-preview-05-06"
+
+
 # ── Aggregate Config ─────────────────────────────────
 
 
@@ -136,6 +157,9 @@ class EngineConfig:
     behavior: BehaviorConfig = field(default_factory=BehaviorConfig)
     navigation: NavigationConfig = field(default_factory=NavigationConfig)
     retry: RetryConfig = field(default_factory=RetryConfig)
+    checkpoint: CheckpointConfig = field(default_factory=CheckpointConfig)
+    adaptive: AdaptiveConfig = field(default_factory=AdaptiveConfig)
+    llm: LLMConfig = field(default_factory=LLMConfig)
 
 
 # ── Loader ───────────────────────────────────────────
@@ -176,6 +200,7 @@ def _parse_config(raw: dict[str, Any]) -> EngineConfig:
     behavior_raw = raw.get("human_behavior", {})
     nav_raw = raw.get("navigation", {})
     retry_raw = raw.get("retry", {})
+    checkpoint_raw = raw.get("checkpoint", {})
 
     stealth = StealthConfig(
         enabled=stealth_raw.get("enabled", True),
@@ -218,9 +243,31 @@ def _parse_config(raw: dict[str, Any]) -> EngineConfig:
         enable_replanning=retry_raw.get("enable_replanning", True),
     ) if retry_raw else RetryConfig()
 
+    checkpoint = CheckpointConfig(
+        go_threshold=float(checkpoint_raw.get("go_threshold", 0.8)),
+        ask_threshold=float(checkpoint_raw.get("ask_threshold", 0.5)),
+        enabled=checkpoint_raw.get("enabled", True),
+    ) if checkpoint_raw else CheckpointConfig()
+
+    adaptive_raw = raw.get("adaptive", {})
+    adaptive = AdaptiveConfig(
+        min_successes=adaptive_raw.get("min_successes", 3),
+        enabled=adaptive_raw.get("enabled", True),
+    ) if adaptive_raw else AdaptiveConfig()
+
+    llm_raw = raw.get("llm", {})
+    llm = LLMConfig(
+        provider=llm_raw.get("provider", "gemini"),
+        flash_model=llm_raw.get("tier1_model", "gemini-2.0-flash"),
+        pro_model=llm_raw.get("tier2_model", "gemini-2.5-pro-preview-05-06"),
+    ) if llm_raw else LLMConfig()
+
     return EngineConfig(
         stealth=stealth,
         behavior=behavior,
         navigation=navigation,
         retry=retry,
+        checkpoint=checkpoint,
+        adaptive=adaptive,
+        llm=llm,
     )

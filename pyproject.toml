@@ -19,6 +19,9 @@ dev = [
     "ruff>=0.5",
     "mypy>=1.10",
 ]
+openai = [
+    "openai>=1.0",
+]
 vision = [
     "ultralytics>=8.2",
     "opencv-python>=4.9",

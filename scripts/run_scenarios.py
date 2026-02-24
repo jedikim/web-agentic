@@ -5,6 +5,9 @@ Runs multi-phase scenarios where each phase is a single ``orch.run()`` call.
 The browser session is maintained across phases so that Phase N+1 can
 continue from the page state left by Phase N.
 
+For parallel scenario execution with recovery and rollback logging, see
+``src.core.resilience.ResilienceOrchestrator``.
+
 Usage:
     # Run all scenarios (headful)
     python scripts/run_scenarios.py

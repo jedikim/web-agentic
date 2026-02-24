@@ -7,8 +7,13 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 
+from src.api.chat_automation import ChatAutomationService
 from src.api.dependencies import get_session_manager
 from src.api.models import (
+    CaptchaSubmitRequest,
+    ChatStartRequest,
+    ChatStartResponse,
+    ChatStatusResponse,
     CreateSessionRequest,
     CreateSessionResponse,
     ExecuteTurnRequest,
@@ -209,3 +214,91 @@ async def close_session(session_id: str) -> StatusResponse:
         message=f"Session {session_id} closed",
         data={"session_id": result["id"], "status": result["status"]},
     )
+
+
+# ── Chat Automation ─────────────────────────────────
+
+_chat_service: ChatAutomationService | None = None
+
+
+def get_chat_service() -> ChatAutomationService:
+    """Get or create the chat automation service singleton."""
+    global _chat_service  # noqa: PLW0603
+    if _chat_service is None:
+        _chat_service = ChatAutomationService(session_manager=get_session_manager())
+    return _chat_service
+
+
+@router.post("/{session_id}/chat/start", response_model=ChatStartResponse)
+async def start_chat_run(session_id: str, req: ChatStartRequest) -> ChatStartResponse:
+    """Start a chat automation run for a session."""
+    svc = get_chat_service()
+    try:
+        run_id = await svc.start_run(session_id, req.instruction, req.headless)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return ChatStartResponse(run_id=run_id, status="running")
+
+
+@router.post("/{session_id}/chat/{run_id}/pause", response_model=StatusResponse)
+async def pause_chat_run(session_id: str, run_id: str) -> StatusResponse:
+    """Pause a running chat automation."""
+    svc = get_chat_service()
+    try:
+        await svc.pause(run_id)
+    except (KeyError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return StatusResponse(status="paused", message=f"Run {run_id} paused")
+
+
+@router.post("/{session_id}/chat/{run_id}/resume", response_model=StatusResponse)
+async def resume_chat_run(session_id: str, run_id: str) -> StatusResponse:
+    """Resume a paused chat automation."""
+    svc = get_chat_service()
+    try:
+        await svc.resume(run_id)
+    except (KeyError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return StatusResponse(status="running", message=f"Run {run_id} resumed")
+
+
+@router.post("/{session_id}/chat/{run_id}/cancel", response_model=StatusResponse)
+async def cancel_chat_run(session_id: str, run_id: str) -> StatusResponse:
+    """Cancel a running or paused chat automation."""
+    svc = get_chat_service()
+    try:
+        await svc.cancel(run_id)
+    except (KeyError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return StatusResponse(status="canceled", message=f"Run {run_id} canceled")
+
+
+@router.post("/{session_id}/chat/{run_id}/captcha", response_model=StatusResponse)
+async def submit_captcha_solution(
+    session_id: str, run_id: str, req: CaptchaSubmitRequest,
+) -> StatusResponse:
+    """Submit a CAPTCHA solution for a chat automation run."""
+    svc = get_chat_service()
+    try:
+        await svc.submit_captcha(run_id, req.solution)
+    except (KeyError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return StatusResponse(status="submitted", message="CAPTCHA solution submitted")
+
+
+@router.post("/{session_id}/chat/{run_id}/image", response_model=StatusResponse)
+async def attach_image_to_run(session_id: str, run_id: str) -> StatusResponse:
+    """Attach an image to a chat automation run (placeholder for multipart upload)."""
+    _ = get_chat_service()
+    return StatusResponse(status="ok", message="Use multipart upload for images")
+
+
+@router.get("/{session_id}/chat/{run_id}/status", response_model=ChatStatusResponse)
+async def get_chat_status(session_id: str, run_id: str) -> ChatStatusResponse:
+    """Get current status of a chat automation run."""
+    svc = get_chat_service()
+    try:
+        status = await svc.get_status(run_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return ChatStatusResponse(**status)

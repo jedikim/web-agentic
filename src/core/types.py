@@ -7,10 +7,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 from playwright.async_api import Page
-
 
 # ── Failure Codes ────────────────────────────────────
 
@@ -272,6 +271,7 @@ class StepContext:
 
 # ── Protocol Interfaces ──────────────────────────────
 
+@runtime_checkable
 class IExecutor(Protocol):
     """Browser automation interface — X module."""
     async def goto(self, url: str) -> None: ...
@@ -282,6 +282,9 @@ class IExecutor(Protocol):
     async def screenshot(self, region: tuple[int, int, int, int] | None = None) -> bytes: ...
     async def wait_for(self, condition: WaitCondition) -> None: ...
     async def get_page(self) -> Page: ...
+    async def get_page_state(self) -> dict[str, Any]: ...
+    async def evaluate(self, expression: str) -> object: ...
+    async def wait_for_selector(self, selector: str, timeout: int = 5000) -> None: ...
 
 
 class IExtractor(Protocol):

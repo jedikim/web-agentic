@@ -21,6 +21,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from src.core.types import IRuleEngine, RuleDefinition, StepResult
+from src.learning.canary_gate import CanaryConfig, evaluate_canary
 from src.learning.pattern_db import Pattern, PatternDB
 
 if TYPE_CHECKING:
@@ -108,6 +109,22 @@ class RulePromoter:
         promoted: list[RuleDefinition] = []
         for pattern in promotable:
             if pattern.pattern_id in self._promoted_ids:
+                continue
+
+            canary_config = CanaryConfig(
+                min_trials=self._min_success,
+                min_success_rate=self._min_ratio,
+            )
+            canary_result = await evaluate_canary(
+                self._pattern_db, pattern.site, pattern.intent, pattern.selector,
+                config=canary_config,
+            )
+            if not canary_result.promoted:
+                logger.info(
+                    "Canary gate rejected pattern %s: %s",
+                    pattern.pattern_id,
+                    canary_result.reason,
+                )
                 continue
 
             rule = await self.promote_pattern(pattern)

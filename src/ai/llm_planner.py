@@ -17,6 +17,7 @@ from typing import Any
 from google import genai
 from google.genai import types
 
+from src.ai.llm_provider import ILLMProvider
 from src.ai.prompt_manager import PromptManager
 from src.core.types import ExtractedElement, PatchData, StepDefinition
 
@@ -78,6 +79,9 @@ class LLMPlanner:
         api_key: Gemini API key. Falls back to ``GEMINI_API_KEY`` env var.
         tier1_model: Primary (cheaper/faster) model name.
         tier2_model: Escalation (more capable) model name.
+        provider: Optional LLM provider instance. When set, all API
+            calls go through this provider instead of the built-in
+            Gemini client.
     """
 
     def __init__(
@@ -87,15 +91,26 @@ class LLMPlanner:
         tier1_model: str | None = None,
         tier2_model: str | None = None,
         max_cost_usd: float = 0.20,
+        provider: ILLMProvider | None = None,
     ) -> None:
         self.prompt_manager = prompt_manager
         self.tier1_model = tier1_model or DEFAULT_FLASH_MODEL
         self.tier2_model = tier2_model or DEFAULT_PRO_MODEL
         self.usage = UsageStats()
         self._max_cost_usd = max_cost_usd
+        self._provider = provider
 
-        resolved_key = api_key or os.environ.get("GEMINI_API_KEY", "") or os.environ.get("GOOGLE_API_KEY", "")
-        self._client = genai.Client(api_key=resolved_key) if resolved_key else genai.Client()
+        if provider is None:
+            resolved_key = (
+                api_key
+                or os.environ.get("GEMINI_API_KEY", "")
+                or os.environ.get("GOOGLE_API_KEY", "")
+            )
+            self._client = (
+                genai.Client(api_key=resolved_key) if resolved_key else genai.Client()
+            )
+        else:
+            self._client = None  # type: ignore[assignment]
 
     # ── Public API (ILLMPlanner Protocol) ────────────
 
@@ -364,6 +379,12 @@ class LLMPlanner:
         Returns:
             Tuple of (response text, token count).
         """
+        # Use provider if available (non-multimodal path)
+        if self._provider is not None and not images:
+            text = await self._provider.generate(prompt)
+            tokens_used = (len(prompt) + len(text)) // 4
+            return text, tokens_used
+
         # Build content: text-only or multimodal (text + images)
         if images:
             content_parts: list[Any] = [prompt]
@@ -587,12 +608,14 @@ def _extract_json(text: str) -> str:
 def create_llm_planner(
     api_key: str | None = None,
     max_cost_usd: float = 0.20,
+    provider: ILLMProvider | None = None,
 ) -> LLMPlanner:
     """Create an ``LLMPlanner`` with default configuration.
 
     Args:
         api_key: Gemini API key. Falls back to ``GEMINI_API_KEY`` env var.
         max_cost_usd: Maximum total cost before skipping Tier2 escalation.
+        provider: Optional LLM provider instance for multi-provider support.
 
     Returns:
         Configured ``LLMPlanner`` instance.
@@ -602,4 +625,5 @@ def create_llm_planner(
         prompt_manager=prompt_manager,
         api_key=api_key,
         max_cost_usd=max_cost_usd,
+        provider=provider,
     )
