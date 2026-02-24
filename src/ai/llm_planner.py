@@ -1,0 +1,323 @@
+"""LLM Planner — L module for the adaptive web automation engine.
+
+Implements the ``ILLMPlanner`` protocol using the Google Gemini API
+with a tiered model strategy (Flash for speed, Pro for accuracy).
+All outputs are structured patches — never free-form code (P3 principle).
+"""
+from __future__ import annotations
+
+import json
+import logging
+import os
+import re
+from dataclasses import dataclass, field
+from typing import Any
+
+import google.generativeai as genai
+
+from src.ai.prompt_manager import PromptManager
+from src.core.types import ExtractedElement, PatchData, StepDefinition
+
+logger = logging.getLogger(__name__)
+
+# ── Cost constants (approximate USD per token) ───────
+
+_COST_PER_TOKEN: dict[str, float] = {
+    "gemini-2.0-flash": 0.00001,
+    "gemini-2.5-pro-preview-06-05": 0.00005,
+}
+_DEFAULT_COST_PER_TOKEN = 0.00001
+
+
+@dataclass
+class UsageStats:
+    """Tracks cumulative token usage and cost."""
+
+    total_tokens: int = 0
+    total_cost_usd: float = 0.0
+    calls: int = 0
+    escalations: int = 0
+    call_log: list[dict[str, Any]] = field(default_factory=list)
+
+    def record(self, model: str, tokens: int) -> None:
+        """Record a single API call."""
+        cost_per_token = _COST_PER_TOKEN.get(model, _DEFAULT_COST_PER_TOKEN)
+        cost = tokens * cost_per_token
+        self.total_tokens += tokens
+        self.total_cost_usd += cost
+        self.calls += 1
+        self.call_log.append(
+            {"model": model, "tokens": tokens, "cost_usd": cost}
+        )
+
+
+class LLMPlanner:
+    """LLM-based planner using Google Gemini API.
+
+    Implements the ``ILLMPlanner`` protocol with tiered model escalation:
+    tier1 (Flash) is tried first; if confidence is low or parsing fails,
+    tier2 (Pro) is used as a fallback.
+
+    Args:
+        prompt_manager: Prompt template manager.
+        api_key: Gemini API key. Falls back to ``GEMINI_API_KEY`` env var.
+        tier1_model: Primary (cheaper/faster) model name.
+        tier2_model: Escalation (more capable) model name.
+    """
+
+    def __init__(
+        self,
+        prompt_manager: PromptManager,
+        api_key: str | None = None,
+        tier1_model: str = "gemini-2.0-flash",
+        tier2_model: str = "gemini-2.5-pro-preview-06-05",
+    ) -> None:
+        self.prompt_manager = prompt_manager
+        self.tier1_model = tier1_model
+        self.tier2_model = tier2_model
+        self.usage = UsageStats()
+
+        resolved_key = api_key or os.environ.get("GEMINI_API_KEY", "")
+        if resolved_key:
+            genai.configure(api_key=resolved_key)
+
+    # ── Public API (ILLMPlanner Protocol) ────────────
+
+    async def plan(self, instruction: str) -> list[StepDefinition]:
+        """Decompose a natural language instruction into automation steps.
+
+        Args:
+            instruction: Natural language task description.
+
+        Returns:
+            Ordered list of ``StepDefinition`` objects.
+        """
+        prompt = self.prompt_manager.get_prompt(
+            "plan_steps", instruction=instruction
+        )
+
+        # Tier 1 attempt
+        response_text, tokens = await self._call_gemini(prompt, self.tier1_model)
+        self.usage.record(self.tier1_model, tokens)
+
+        try:
+            steps, confidence = self._parse_plan_response(response_text)
+            if confidence >= 0.7:
+                return steps
+            logger.info(
+                "Tier1 plan confidence %.2f < 0.7, escalating to tier2",
+                confidence,
+            )
+        except (json.JSONDecodeError, KeyError, ValueError) as exc:
+            logger.warning("Tier1 plan parse failed (%s), escalating to tier2", exc)
+
+        # Tier 2 escalation
+        self.usage.escalations += 1
+        response_text, tokens = await self._call_gemini(prompt, self.tier2_model)
+        self.usage.record(self.tier2_model, tokens)
+        steps, _ = self._parse_plan_response(response_text)
+        return steps
+
+    async def select(
+        self, candidates: list[ExtractedElement], intent: str
+    ) -> PatchData:
+        """Select the best element from candidates for a given intent.
+
+        Args:
+            candidates: List of extracted DOM elements.
+            intent: User intent or action description.
+
+        Returns:
+            ``PatchData`` with ``patch_type="selector_fix"`` containing
+            the selected element ID and confidence.
+        """
+        candidates_json = json.dumps(
+            [
+                {
+                    "eid": c.eid,
+                    "type": c.type,
+                    "text": c.text,
+                    "role": c.role,
+                    "visible": c.visible,
+                }
+                for c in candidates
+            ],
+            ensure_ascii=False,
+            indent=2,
+        )
+
+        prompt = self.prompt_manager.get_prompt(
+            "select_element", candidates=candidates_json, intent=intent
+        )
+
+        # Tier 1 attempt
+        response_text, tokens = await self._call_gemini(prompt, self.tier1_model)
+        self.usage.record(self.tier1_model, tokens)
+
+        try:
+            patch = self._parse_select_response(response_text)
+            if patch.confidence >= 0.7:
+                return patch
+            logger.info(
+                "Tier1 select confidence %.2f < 0.7, escalating to tier2",
+                patch.confidence,
+            )
+        except (json.JSONDecodeError, KeyError, ValueError) as exc:
+            logger.warning(
+                "Tier1 select parse failed (%s), escalating to tier2", exc
+            )
+
+        # Tier 2 escalation
+        self.usage.escalations += 1
+        response_text, tokens = await self._call_gemini(prompt, self.tier2_model)
+        self.usage.record(self.tier2_model, tokens)
+        return self._parse_select_response(response_text)
+
+    # ── Internal: Gemini API call ────────────────────
+
+    async def _call_gemini(self, prompt: str, model: str) -> tuple[str, int]:
+        """Call the Gemini API and return (response_text, tokens_used).
+
+        This method wraps the actual API call and is designed to be
+        easily mocked in unit tests.
+
+        Args:
+            prompt: The full prompt string.
+            model: Gemini model name.
+
+        Returns:
+            Tuple of (response text, token count).
+        """
+        generative_model = genai.GenerativeModel(model)
+        response = await generative_model.generate_content_async(prompt)
+        text = response.text or ""
+        # Estimate token count from usage metadata if available,
+        # otherwise approximate from text length
+        tokens_used = 0
+        if hasattr(response, "usage_metadata") and response.usage_metadata:
+            tokens_used = getattr(response.usage_metadata, "total_token_count", 0)
+        if tokens_used == 0:
+            # Rough approximation: 1 token ≈ 4 characters
+            tokens_used = (len(prompt) + len(text)) // 4
+        return text, tokens_used
+
+    # ── Internal: Response parsing ───────────────────
+
+    @staticmethod
+    def _parse_plan_response(text: str) -> tuple[list[StepDefinition], float]:
+        """Parse a plan response into StepDefinitions and confidence.
+
+        Handles two response formats:
+        1. Wrapped: ``{"confidence": 0.85, "steps": [...]}``
+        2. Direct: ``[{...}, {...}]``
+
+        Args:
+            text: Raw LLM response text.
+
+        Returns:
+            Tuple of (list of StepDefinition, confidence score).
+
+        Raises:
+            json.JSONDecodeError: If the text is not valid JSON.
+            KeyError: If required fields are missing.
+            ValueError: If step data is invalid.
+        """
+        cleaned = _extract_json(text)
+        data = json.loads(cleaned)
+
+        confidence = 1.0
+        if isinstance(data, dict):
+            confidence = float(data.get("confidence", 1.0))
+            steps_data = data.get("steps", [])
+        elif isinstance(data, list):
+            steps_data = data
+        else:
+            raise ValueError(f"Unexpected response type: {type(data).__name__}")
+
+        steps: list[StepDefinition] = []
+        for i, s in enumerate(steps_data):
+            if not isinstance(s, dict):
+                raise ValueError(f"Step {i} is not a dict: {type(s).__name__}")
+            step = StepDefinition(
+                step_id=str(s.get("step_id", f"step_{i + 1}")),
+                intent=str(s.get("intent", "")),
+                node_type=str(s.get("node_type", "action")),
+                selector=s.get("selector"),
+                arguments=list(s.get("arguments", [])),
+                max_attempts=int(s.get("max_attempts", 3)),
+                timeout_ms=int(s.get("timeout_ms", 10000)),
+            )
+            steps.append(step)
+
+        if not steps:
+            raise ValueError("Plan response contains no steps")
+
+        return steps, confidence
+
+    @staticmethod
+    def _parse_select_response(text: str) -> PatchData:
+        """Parse a select response into PatchData.
+
+        Args:
+            text: Raw LLM response text.
+
+        Returns:
+            ``PatchData`` with ``patch_type="selector_fix"``.
+
+        Raises:
+            json.JSONDecodeError: If the text is not valid JSON.
+            KeyError: If required fields are missing.
+        """
+        cleaned = _extract_json(text)
+        data = json.loads(cleaned)
+
+        if not isinstance(data, dict):
+            raise ValueError(f"Expected dict, got {type(data).__name__}")
+
+        eid = data["eid"]
+        confidence = float(data.get("confidence", 0.5))
+        reasoning = data.get("reasoning", "")
+
+        return PatchData(
+            patch_type="selector_fix",
+            target=str(eid),
+            data={"selected_eid": str(eid), "reasoning": str(reasoning)},
+            confidence=confidence,
+        )
+
+
+# ── Helpers ──────────────────────────────────────────
+
+
+def _extract_json(text: str) -> str:
+    """Extract JSON from a response that may contain markdown fences.
+
+    Handles responses wrapped in ```json ... ``` blocks.
+
+    Args:
+        text: Raw response text.
+
+    Returns:
+        Cleaned JSON string.
+    """
+    # Strip markdown code fences
+    match = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return text.strip()
+
+
+# ── Factory ──────────────────────────────────────────
+
+
+def create_llm_planner(api_key: str | None = None) -> LLMPlanner:
+    """Create an ``LLMPlanner`` with default configuration.
+
+    Args:
+        api_key: Gemini API key. Falls back to ``GEMINI_API_KEY`` env var.
+
+    Returns:
+        Configured ``LLMPlanner`` instance.
+    """
+    prompt_manager = PromptManager()
+    return LLMPlanner(prompt_manager=prompt_manager, api_key=api_key)
