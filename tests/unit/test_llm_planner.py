@@ -575,3 +575,32 @@ class TestFactory:
         planner = create_llm_planner(api_key="test-key")
         assert planner.tier1_model == "gemini-2.0-flash"
         assert planner.tier2_model == "gemini-2.5-pro-preview-06-05"
+
+
+# ── Test: Plan With Context ─────────────────────────
+
+
+class TestPlanWithContext:
+    """Tests for plan_with_context method."""
+
+    @pytest.mark.asyncio
+    async def test_plan_with_context_includes_page_info(self, monkeypatch):
+        """plan_with_context passes page URL/title to prompt."""
+        captured_prompts = []
+
+        async def mock_call(self, prompt, model):
+            captured_prompts.append(prompt)
+            return '{"confidence": 0.9, "steps": [{"step_id": "s1", "intent": "click search", "node_type": "action"}]}', 100
+
+        monkeypatch.setattr(LLMPlanner, "_call_gemini", mock_call)
+        planner = LLMPlanner(PromptManager(), api_key="fake")
+        steps = await planner.plan_with_context(
+            instruction="노트북 검색",
+            page_url="https://shopping.naver.com",
+            page_title="네이버쇼핑",
+            visible_text_snippet="검색 쇼핑하우 럭셔리",
+        )
+        assert len(steps) == 1
+        assert "shopping.naver.com" in captured_prompts[0]
+        assert "네이버쇼핑" in captured_prompts[0]
+        assert "노트북 검색" in captured_prompts[0]

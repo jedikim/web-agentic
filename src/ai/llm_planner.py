@@ -173,6 +173,54 @@ class LLMPlanner:
         self.usage.record(self.tier2_model, tokens)
         return self._parse_select_response(response_text)
 
+    async def plan_with_context(
+        self,
+        instruction: str,
+        page_url: str = "",
+        page_title: str = "",
+        visible_text_snippet: str = "",
+    ) -> list[StepDefinition]:
+        """Plan with current page context for better LLM decisions.
+
+        Args:
+            instruction: Natural language task description.
+            page_url: Current page URL.
+            page_title: Current page title.
+            visible_text_snippet: Truncated visible text from page.
+
+        Returns:
+            Ordered list of StepDefinition objects.
+        """
+        prompt = self.prompt_manager.get_prompt(
+            "plan_steps_with_context",
+            instruction=instruction,
+            page_url=page_url,
+            page_title=page_title,
+            visible_text=visible_text_snippet[:500],
+        )
+
+        # Tier 1 attempt
+        response_text, tokens = await self._call_gemini(prompt, self.tier1_model)
+        self.usage.record(self.tier1_model, tokens)
+
+        try:
+            steps, confidence = self._parse_plan_response(response_text)
+            if confidence >= 0.7:
+                return steps
+            logger.info(
+                "Tier1 plan_with_context confidence %.2f < 0.7, escalating",
+                confidence,
+            )
+        except (json.JSONDecodeError, KeyError, ValueError) as exc:
+            logger.warning("Tier1 plan_with_context parse failed (%s), escalating", exc)
+
+        # Tier 2 escalation
+        self.usage.escalations += 1
+        response_text, tokens = await self._call_gemini(prompt, self.tier2_model)
+        self.usage.record(self.tier2_model, tokens)
+        steps, _ = self._parse_plan_response(response_text)
+        return steps
+
     # ── Internal: Gemini API call ────────────────────
 
     async def _call_gemini(self, prompt: str, model: str) -> tuple[str, int]:

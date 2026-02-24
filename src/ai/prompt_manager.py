@@ -45,6 +45,32 @@ _BUILTIN_PROMPTS: dict[str, dict[str, str]] = {
             '  {"confidence": 0.85, "steps": [...]}'
         ),
     },
+    "plan_steps_with_context": {
+        "v1": (
+            "You are a web automation assistant. You are currently viewing a web page.\n\n"
+            "Current page:\n"
+            "- URL: $page_url\n"
+            "- Title: $page_title\n"
+            "- Visible text (excerpt): $visible_text\n\n"
+            "User's task: $instruction\n\n"
+            "Decompose this task into concrete browser automation steps. "
+            "Consider what you see on the current page to decide the next actions.\n\n"
+            "Each step must specify:\n"
+            '- "step_id": unique string (e.g. "step_1")\n'
+            '- "intent": what this step does in natural language\n'
+            '- "action": one of "goto", "click", "type", "press_key", "scroll", "wait"\n'
+            '- "selector": CSS selector if known, or null\n'
+            '- "arguments": array of strings (URL for goto, text for type, key for press_key)\n'
+            '- "verify": optional verification object e.g. {"type": "url_contains", "value": "query="}\n\n'
+            "Return JSON:\n"
+            '{"confidence": 0.9, "steps": [...]}\n\n'
+            "Constraints:\n"
+            "- Output MUST be valid JSON only.\n"
+            "- Each step = one atomic browser action.\n"
+            "- For search: type into search input, then press Enter or click search button.\n"
+            "- Be specific about what element to interact with."
+        ),
+    },
     "select_element": {
         "v1": (
             "You are a web automation assistant. Given a list of interactive elements "
