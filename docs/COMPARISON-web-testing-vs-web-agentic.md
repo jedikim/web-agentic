@@ -15,7 +15,7 @@
 | **브라우저** | Playwright (TS) | Playwright (async Python) |
 | **LLM** | Gemini + OpenAI (멀티프로바이더) | Gemini only (google-genai) |
 | **모델** | gemini-3.1-pro / gemini-3.0-flash / gpt-5.2-codex / gpt-5-mini | gemini-3.1-pro-preview / gemini-3-flash-preview |
-| **테스트** | 140 tests (vitest) | 968 tests (pytest) |
+| **테스트** | 140 tests (vitest) | 1207 tests (pytest) |
 | **저장소** | 파일 기반 JSON | SQLite (aiosqlite) |
 | **UI** | 임베디드 HTML (backend-ui, chat-ui) | React 19 + Vite + Tailwind (evolution-ui) |
 | **진화 엔진** | bug/exception 트리거 + git worktree | 상태 머신 + git sandbox + SSE |
@@ -326,20 +326,29 @@ LLM 의도 분석 → 캐시 조회 → LLM 요소 선택 → 실행 → 검증 
 
 ## 8. 요약
 
-### 핵심 수용 항목 (즉시)
+### Wave 1 수용 완료 (9개 기능, 110 tests)
 
-1. **Chat Automation Backend 기능** — pause/resume/cancel/captcha/이미지첨부/headful 전환
-2. **스크린샷 체크포인트** — 민감 액션 전 confidence 기반 안전 게이트
-3. **적응형 컨트롤러 + 리플레이 저장소** — 반복 실행 비용 수렴 모델
-4. **카나리 게이트** — 안전한 규칙 승격
-5. **회복력 오케스트레이터** — 병렬 시나리오 + 자동 복구
+1. **Chat Automation Backend** — pause/resume/cancel/captcha/이미지첨부/headful 전환 ✅
+2. **스크린샷 체크포인트** — confidence 기반 go/not_go/ask_user 판정 ✅
+3. **적응형 컨트롤러 + 리플레이 저장소** — 반복 실행 비용 수렴 모델 ✅
+4. **카나리 게이트** — 회귀 체크 기반 규칙 승격 게이트 ✅
+5. **회복력 오케스트레이터** — 병렬 시나리오 실행 + 복구 + 롤백 ✅
+6. **멀티 LLM 프로바이더** — ILLMProvider Protocol + Gemini/OpenAI ✅
+7. **패치 검증기** — LLM 생성 패치 구조/구문 검증 ✅
+8. **반복 아이템 판단 체인** — YOLO→VLM 캐스케이드 ✅
+9. **Executor 어댑터 패턴** — IExecutor Protocol + MockExecutor ✅
 
-### 부분 수용 항목 (향후)
+### Wave 2 수용 완료 (9개 기능, 105 tests)
 
-1. **멀티 LLM 프로바이더** — OpenAI 지원 추가
-2. **패치 검증기** — LLM 출력 스키마 검증 강화
-3. **반복 아이템 판단 체인** — 쇼핑몰 리스트 자동화
-4. **Executor 어댑터 패턴** — 테스트 용이성 향상
+1. **Metrics Dashboard** — 런타임 메트릭 집계 (비용/지연/실패율) ✅
+2. **Retry Policy** — non-retryable 코드 분류 (auth_blocked/review_rejected/captcha) ✅
+3. **Context Reducer** — LLM 컨텍스트 최적화 (후보 요소 축소, score 기반 정렬) ✅
+4. **Evolution Model Policy** — 코딩=Pro / 자동화=Flash 티어 강제 ✅
+5. **Recipe Versioning** — 셀렉터 레시피 버전 관리 + 패치 적용 (v001→v002) ✅
+6. **Decision Port + Human Loop** — DecisionPort Protocol + go/not_go/revise 루프 ✅
+7. **Selector Recovery Pipeline** — SelectorNotFound 자동 복구 (후보→패치→재시도) ✅
+8. **Scenario Pack Builder** — baseline + exception matrix 시나리오 생성 ✅
+9. **Auto-Improvement Orchestrator** — 실패 시 자동 진화 트리거 ✅
 
 ### 비수용 항목
 
