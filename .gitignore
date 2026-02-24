@@ -1,0 +1,28 @@
+node_modules/
+dist/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.vitest/
+*.tsbuildinfo
+.env
+.env.*
+
+# E2E run artifacts (screenshots, logs, metrics)
+node-runtime/e2e/runs/
+
+# Python test data artifacts
+python-authoring-service/data/
+
+# Git worktrees
+.worktrees/
+
+# Authoring UI
+authoring-ui/node_modules/
+
+# Playwright MCP logs
+.playwright-mcp/
+
+# Temporary screenshots
+*.png
