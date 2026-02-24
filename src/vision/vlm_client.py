@@ -24,6 +24,11 @@ from src.vision.yolo_detector import Detection
 logger = logging.getLogger(__name__)
 
 
+# ── Model defaults (overridable via env vars) ──────
+
+DEFAULT_VLM_FLASH = os.environ.get("GEMINI_FLASH_MODEL", "gemini-3-flash-preview")
+DEFAULT_VLM_PRO = os.environ.get("GEMINI_PRO_MODEL", "gemini-3.1-pro-preview")
+
 # ── Cost Tracking ───────────────────────────────────
 
 
@@ -50,8 +55,11 @@ class UsageStats:
 
 # Approximate pricing per million tokens (input/output) for cost estimation.
 _PRICING: dict[str, dict[str, float]] = {
-    "gemini-2.0-flash": {"input": 0.075, "output": 0.30},
-    "gemini-2.5-pro-preview-06-05": {"input": 1.25, "output": 10.0},
+    "gemini-3.1-pro-preview": {"input": 2.00, "output": 12.0},
+    "gemini-3-flash-preview": {"input": 0.50, "output": 3.0},
+    "gemini-3-pro-preview": {"input": 2.00, "output": 12.0},
+    "gemini-2.5-pro": {"input": 1.25, "output": 10.0},
+    "gemini-2.5-flash": {"input": 0.30, "output": 2.50},
 }
 
 # Default pricing for unknown models.
@@ -87,13 +95,14 @@ class VLMClient:
     def __init__(
         self,
         api_key: str | None = None,
-        tier1_model: str = "gemini-2.0-flash",
-        tier2_model: str = "gemini-2.5-pro-preview-06-05",
+        tier1_model: str | None = None,
+        tier2_model: str | None = None,
     ) -> None:
-        self._api_key = api_key or os.environ.get("GOOGLE_API_KEY", "")
-        self._tier1_model = tier1_model
-        self._tier2_model = tier2_model
+        self._api_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY", "")
+        self._tier1_model = tier1_model or DEFAULT_VLM_FLASH
+        self._tier2_model = tier2_model or DEFAULT_VLM_PRO
         self._stats = UsageStats()
+        self._client: Any | None = None
 
     @property
     def stats(self) -> UsageStats:
@@ -122,28 +131,35 @@ class VLMClient:
         Raises:
             RuntimeError: If the API call fails.
         """
-        import google.generativeai as genai
-        from PIL import Image
-        import io
+        from google import genai as _genai
+        from google.genai import types as _types
 
         if not self._api_key:
             raise RuntimeError(
-                "Gemini API key not configured. Set GOOGLE_API_KEY environment variable "
-                "or pass api_key to VLMClient constructor."
+                "Gemini API key not configured. Set GEMINI_API_KEY or GOOGLE_API_KEY "
+                "environment variable, or pass api_key to VLMClient constructor."
             )
 
-        genai.configure(api_key=self._api_key)
-        model = genai.GenerativeModel(model_name)
+        if self._client is None:
+            self._client = _genai.Client(api_key=self._api_key)
 
-        image = Image.open(io.BytesIO(image_bytes))
-        response = model.generate_content([prompt, image])
+        response = self._client.models.generate_content(
+            model=model_name,
+            contents=[
+                prompt,
+                _types.Part.from_bytes(data=image_bytes, mime_type="image/png"),
+            ],
+        )
 
         # Extract token usage.
-        input_tokens = getattr(response.usage_metadata, "prompt_token_count", 0)
-        output_tokens = getattr(response.usage_metadata, "candidates_token_count", 0)
+        input_tokens = 0
+        output_tokens = 0
+        if response.usage_metadata:
+            input_tokens = getattr(response.usage_metadata, "prompt_token_count", 0) or 0
+            output_tokens = getattr(response.usage_metadata, "candidates_token_count", 0) or 0
 
         return {
-            "text": response.text,
+            "text": response.text or "",
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
         }
@@ -297,6 +313,95 @@ class VLMClient:
             "raw_text": response["text"],
         }
 
+    async def analyze_grid(
+        self,
+        grid_image: bytes,
+        intent: str,
+        cell_count: int,
+    ) -> list[dict[str, Any]]:
+        """Classify / select items in a grid image with a single VLM call.
+
+        The grid image contains ``cell_count`` items labelled ``[0]`` to
+        ``[cell_count-1]``.  The VLM is asked to evaluate each item
+        against the given *intent* and return structured per-cell results.
+
+        Args:
+            grid_image: PNG bytes of the stitched grid (with ``[n]`` labels).
+            intent: User intent describing what to find / select.
+            cell_count: Number of cells in the grid.
+
+        Returns:
+            A list of dicts, one per cell, each with keys:
+            ``index``, ``label``, ``confidence``, ``relevant``,
+            ``description``, ``reason``.
+        """
+        last_idx = cell_count - 1
+        prompt = (
+            "You are analyzing a grid image containing multiple items.\n"
+            f"The grid has {cell_count} items labelled [0] to [{last_idx}].\n\n"
+            f"User intent: {intent}\n\n"
+            "For EACH item, evaluate whether it matches the intent.\n"
+            "Respond with a JSON array of objects, one per item:\n"
+            '[{"index": 0, "label": "item type/name", "confidence": 0.0-1.0, '
+            '"relevant": true/false, "description": "brief description", '
+            '"reason": "why relevant or not"}]\n\n'
+            f"Return ALL items in order [0] to [{last_idx}]."
+        )
+
+        response = self._call_gemini_vision(self._tier1_model, grid_image, prompt)
+        self._update_stats(self._tier1_model, response)
+
+        return self._parse_grid_response(response["text"], cell_count)
+
+    def _parse_grid_response(
+        self,
+        text: str,
+        cell_count: int,
+    ) -> list[dict[str, Any]]:
+        """Parse the VLM analyze_grid response into structured per-cell results.
+
+        Args:
+            text: Raw VLM response text.
+            cell_count: Expected number of cells.
+
+        Returns:
+            List of per-cell result dicts.
+        """
+        import re as _re
+
+        try:
+            # Try to extract JSON array from the response.
+            json_match = _re.search(r"\[[\s\S]*\]", text)
+            if json_match:
+                data = json.loads(json_match.group())
+                if isinstance(data, list):
+                    results: list[dict[str, Any]] = []
+                    for item in data:
+                        results.append({
+                            "index": int(item.get("index", len(results))),
+                            "label": str(item.get("label", "")),
+                            "confidence": float(item.get("confidence", 0.5)),
+                            "relevant": bool(item.get("relevant", False)),
+                            "description": str(item.get("description", "")),
+                            "reason": str(item.get("reason", "")),
+                        })
+                    return results
+        except (json.JSONDecodeError, ValueError, TypeError):
+            pass
+
+        # Fallback: return empty results for each cell.
+        return [
+            {
+                "index": i,
+                "label": "",
+                "confidence": 0.0,
+                "relevant": False,
+                "description": "",
+                "reason": "parse_failed",
+            }
+            for i in range(cell_count)
+        ]
+
     async def describe_page(self, screenshot: bytes) -> str:
         """Describe what's visible on a screenshot.
 
@@ -446,15 +551,15 @@ class VLMClient:
 
 def create_vlm_client(
     api_key: str | None = None,
-    tier1_model: str = "gemini-2.0-flash",
-    tier2_model: str = "gemini-2.5-pro-preview-06-05",
+    tier1_model: str | None = None,
+    tier2_model: str | None = None,
 ) -> VLMClient:
     """Create and return a new ``VLMClient`` instance.
 
     Args:
-        api_key: Gemini API key. Reads from GOOGLE_API_KEY env var if None.
-        tier1_model: Model name for tier-1 calls.
-        tier2_model: Model name for tier-2 calls.
+        api_key: Gemini API key. Reads from GEMINI_API_KEY/GOOGLE_API_KEY env var if None.
+        tier1_model: Model name for tier-1 calls. Defaults to GEMINI_FLASH_MODEL env var.
+        tier2_model: Model name for tier-2 calls. Defaults to GEMINI_PRO_MODEL env var.
 
     Returns:
         A configured ``VLMClient``.

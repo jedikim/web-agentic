@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from src.core.types import ExtractedElement
+from src.vision.image_batcher import CellInfo, GridMetadata
 from src.vision.yolo_detector import (
     Detection,
     YOLODetector,
@@ -51,7 +52,7 @@ def small_png() -> bytes:
 @pytest.fixture()
 def detector() -> YOLODetector:
     """Create a YOLODetector with default settings."""
-    return YOLODetector(model_path="yolo11n.pt", confidence_threshold=0.5)
+    return YOLODetector(model_path="yolo26l.pt", confidence_threshold=0.5)
 
 
 def _fake_detections() -> list[dict]:
@@ -269,6 +270,80 @@ class TestDetectElements:
         assert elements == []
 
 
+# ── detect_on_grid() Tests ─────────────────────────
+
+
+def _make_2x2_grid_metadata() -> GridMetadata:
+    """2×2 grid: each cell 100×80, grid 200×160."""
+    return GridMetadata(
+        cells=[
+            CellInfo(index=0, source_bbox=(0, 0, 200, 160), grid_offset=(0, 0), cell_size=(100, 80)),
+            CellInfo(index=1, source_bbox=(200, 0, 200, 160), grid_offset=(100, 0), cell_size=(100, 80)),
+            CellInfo(index=2, source_bbox=(0, 160, 200, 160), grid_offset=(0, 80), cell_size=(100, 80)),
+            CellInfo(index=3, source_bbox=(200, 160, 200, 160), grid_offset=(100, 80), cell_size=(100, 80)),
+        ],
+        grid_size=(200, 160),
+        cols=2,
+        rows=2,
+    )
+
+
+class TestDetectOnGrid:
+    """Tests for YOLODetector.detect_on_grid()."""
+
+    @pytest.mark.asyncio
+    async def test_groups_detections_by_cell(self, detector: YOLODetector, small_png: bytes) -> None:
+        """Detections are grouped into correct cells by centre point."""
+        fake = [
+            {"label": "button", "confidence": 0.9, "bbox": (10, 10, 20, 20), "class_id": 0},   # cell 0
+            {"label": "link", "confidence": 0.8, "bbox": (110, 10, 20, 20), "class_id": 2},     # cell 1
+            {"label": "card", "confidence": 0.7, "bbox": (10, 90, 20, 20), "class_id": 4},      # cell 2
+        ]
+        meta = _make_2x2_grid_metadata()
+        with patch.object(detector, "_run_inference", return_value=fake):
+            results = await detector.detect_on_grid(small_png, meta)
+
+        indices = [idx for idx, _ in results]
+        assert 0 in indices
+        assert 1 in indices
+        assert 2 in indices
+
+    @pytest.mark.asyncio
+    async def test_empty_detections_returns_empty(self, detector: YOLODetector, small_png: bytes) -> None:
+        meta = _make_2x2_grid_metadata()
+        with patch.object(detector, "_run_inference", return_value=[]):
+            results = await detector.detect_on_grid(small_png, meta)
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_multiple_detections_in_same_cell(self, detector: YOLODetector, small_png: bytes) -> None:
+        """Multiple detections in the same cell are grouped together."""
+        fake = [
+            {"label": "button", "confidence": 0.9, "bbox": (10, 10, 20, 20), "class_id": 0},
+            {"label": "text", "confidence": 0.8, "bbox": (30, 30, 20, 20), "class_id": 1},
+        ]
+        meta = _make_2x2_grid_metadata()
+        with patch.object(detector, "_run_inference", return_value=fake):
+            results = await detector.detect_on_grid(small_png, meta)
+
+        # Both should be in cell 0.
+        assert len(results) == 1
+        idx, dets = results[0]
+        assert idx == 0
+        assert len(dets) == 2
+
+    @pytest.mark.asyncio
+    async def test_detection_outside_all_cells_ignored(self, detector: YOLODetector, small_png: bytes) -> None:
+        """Detections outside grid cells are silently ignored."""
+        fake = [
+            {"label": "button", "confidence": 0.9, "bbox": (300, 300, 20, 20), "class_id": 0},
+        ]
+        meta = _make_2x2_grid_metadata()
+        with patch.object(detector, "_run_inference", return_value=fake):
+            results = await detector.detect_on_grid(small_png, meta)
+        assert results == []
+
+
 # ── Lazy Loading Tests ──────────────────────────────
 
 
@@ -303,7 +378,7 @@ class TestFactory:
         """Factory creates a detector with default settings."""
         det = create_yolo_detector()
         assert isinstance(det, YOLODetector)
-        assert det._model_path == "yolo11n.pt"
+        assert det._model_path == "yolo26l.pt"
         assert det._confidence_threshold == 0.5
 
     def test_create_with_custom_params(self) -> None:

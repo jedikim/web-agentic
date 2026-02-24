@@ -141,7 +141,7 @@ cat > requirements.txt << 'EOF'
 playwright>=1.40.0
 
 # === LLM API ===
-google-generativeai>=0.8.0
+google-genai>=1.0
 
 # === 비전/객체 탐지 ===
 ultralytics>=8.1.0

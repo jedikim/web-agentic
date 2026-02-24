@@ -210,7 +210,7 @@ class TestDescribePage:
 
         with patch.object(client, "_call_gemini_vision", side_effect=mock_call):
             await client.describe_page(screenshot_bytes)
-        assert models_used == ["gemini-2.0-flash"]
+        assert models_used == ["gemini-3-flash-preview"]
 
 
 # ── find_element() Tests ────────────────────────────
@@ -284,6 +284,80 @@ class TestFindElement:
         with patch.object(client, "_call_gemini_vision", return_value=response):
             result = await client.find_element(screenshot_bytes, "something")
         assert result is None
+
+
+# ── analyze_grid() Tests ──────────────────────────
+
+
+class TestAnalyzeGrid:
+    """Tests for VLMClient.analyze_grid()."""
+
+    @pytest.mark.asyncio
+    async def test_analyze_grid_parses_response(
+        self, client: VLMClient, screenshot_bytes: bytes
+    ) -> None:
+        """analyze_grid() parses a well-formed JSON array response."""
+        vlm_response = _make_gemini_response(
+            json.dumps([
+                {"index": 0, "label": "shoes", "confidence": 0.9, "relevant": True, "description": "Red sneakers", "reason": "matches intent"},
+                {"index": 1, "label": "hat", "confidence": 0.7, "relevant": False, "description": "Blue hat", "reason": "not shoes"},
+            ])
+        )
+        with patch.object(client, "_call_gemini_vision", return_value=vlm_response):
+            results = await client.analyze_grid(screenshot_bytes, "find shoes", cell_count=2)
+        assert len(results) == 2
+        assert results[0]["index"] == 0
+        assert results[0]["label"] == "shoes"
+        assert results[0]["relevant"] is True
+        assert results[1]["relevant"] is False
+
+    @pytest.mark.asyncio
+    async def test_analyze_grid_single_api_call(
+        self, client: VLMClient, screenshot_bytes: bytes
+    ) -> None:
+        """analyze_grid() makes exactly one API call."""
+        vlm_response = _make_gemini_response(
+            json.dumps([{"index": 0, "label": "item", "confidence": 0.5, "relevant": True, "description": "", "reason": ""}])
+        )
+        call_count = 0
+
+        def mock_call(model_name, image_bytes, prompt):
+            nonlocal call_count
+            call_count += 1
+            return vlm_response
+
+        with patch.object(client, "_call_gemini_vision", side_effect=mock_call):
+            await client.analyze_grid(screenshot_bytes, "find item", cell_count=1)
+        assert call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_analyze_grid_malformed_response_fallback(
+        self, client: VLMClient, screenshot_bytes: bytes
+    ) -> None:
+        """Malformed VLM response returns empty fallback results."""
+        vlm_response = _make_gemini_response("I cannot parse this image properly.")
+        with patch.object(client, "_call_gemini_vision", return_value=vlm_response):
+            results = await client.analyze_grid(screenshot_bytes, "find item", cell_count=3)
+        assert len(results) == 3
+        for r in results:
+            assert r["confidence"] == 0.0
+            assert r["relevant"] is False
+
+    @pytest.mark.asyncio
+    async def test_analyze_grid_uses_tier1_model(
+        self, client: VLMClient, screenshot_bytes: bytes
+    ) -> None:
+        """analyze_grid() uses the tier-1 model."""
+        vlm_response = _make_gemini_response("[]")
+        models_used = []
+
+        def mock_call(model_name, image_bytes, prompt):
+            models_used.append(model_name)
+            return vlm_response
+
+        with patch.object(client, "_call_gemini_vision", side_effect=mock_call):
+            await client.analyze_grid(screenshot_bytes, "test", cell_count=1)
+        assert models_used == ["gemini-3-flash-preview"]
 
 
 # ── Cost Tracking Tests ─────────────────────────────
@@ -370,8 +444,8 @@ class TestFactory:
         """Factory creates a client with default settings."""
         c = create_vlm_client(api_key="test-key")
         assert isinstance(c, VLMClient)
-        assert c._tier1_model == "gemini-2.0-flash"
-        assert c._tier2_model == "gemini-2.5-pro-preview-06-05"
+        assert c._tier1_model == "gemini-3-flash-preview"
+        assert c._tier2_model == "gemini-3.1-pro-preview"
 
     def test_create_with_custom_models(self) -> None:
         """Factory accepts custom model names."""

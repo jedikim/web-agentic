@@ -469,26 +469,29 @@ class TestCostTracking:
     def test_usage_stats_record(self) -> None:
         """UsageStats.record accumulates tokens and cost."""
         stats = UsageStats()
-        stats.record("gemini-2.0-flash", 1000)
+        # gemini-3-flash-preview: avg = (0.50 + 3.0) / 2 = 1.75 per million
+        stats.record("gemini-3-flash-preview", 1000)
         assert stats.total_tokens == 1000
-        assert stats.total_cost_usd == pytest.approx(0.01)
+        assert stats.total_cost_usd == pytest.approx(0.00175)
         assert stats.calls == 1
 
     def test_usage_stats_multiple_models(self) -> None:
         """Records from different models accumulate correctly."""
         stats = UsageStats()
-        stats.record("gemini-2.0-flash", 1000)  # 0.01
-        stats.record("gemini-2.5-pro-preview-06-05", 1000)  # 0.05
+        # gemini-3-flash-preview: 1000 tokens → $0.00175
+        stats.record("gemini-3-flash-preview", 1000)
+        # gemini-3.1-pro-preview: avg = (2.00 + 12.0) / 2 = 7.0 → $0.007
+        stats.record("gemini-3.1-pro-preview", 1000)
         assert stats.total_tokens == 2000
-        assert stats.total_cost_usd == pytest.approx(0.06)
+        assert stats.total_cost_usd == pytest.approx(0.00875)
         assert stats.calls == 2
 
     def test_usage_stats_call_log(self) -> None:
         """Each call is recorded in the call_log."""
         stats = UsageStats()
-        stats.record("gemini-2.0-flash", 500)
+        stats.record("gemini-3-flash-preview", 500)
         assert len(stats.call_log) == 1
-        assert stats.call_log[0]["model"] == "gemini-2.0-flash"
+        assert stats.call_log[0]["model"] == "gemini-3-flash-preview"
         assert stats.call_log[0]["tokens"] == 500
 
     @pytest.mark.asyncio
@@ -504,10 +507,11 @@ class TestCostTracking:
         assert planner.usage.total_cost_usd > 0
 
     def test_unknown_model_uses_default_cost(self) -> None:
-        """Unknown model name falls back to default cost per token."""
+        """Unknown model name falls back to default cost rate."""
         stats = UsageStats()
+        # default: avg = (1.0 + 5.0) / 2 = 3.0 per million → $0.003
         stats.record("unknown-model-xyz", 1000)
-        assert stats.total_cost_usd == pytest.approx(0.01)  # default rate
+        assert stats.total_cost_usd == pytest.approx(0.003)
 
 
 # ── Test: JSON Extraction Helper ─────────────────────
@@ -574,7 +578,7 @@ class TestFactory:
         """Factory creates planner with default model names."""
         planner = create_llm_planner(api_key="test-key")
         assert planner.tier1_model == "gemini-3-flash-preview"
-        assert planner.tier2_model == "gemini-2.5-pro"
+        assert planner.tier2_model == "gemini-3.1-pro-preview"
 
 
 # ── Test: Plan With Context ─────────────────────────
@@ -588,7 +592,7 @@ class TestPlanWithContext:
         """plan_with_context passes page URL/title to prompt."""
         captured_prompts = []
 
-        async def mock_call(self, prompt, model):
+        async def mock_call(self, prompt, model, images=None):
             captured_prompts.append(prompt)
             return '{"confidence": 0.9, "steps": [{"step_id": "s1", "intent": "click search", "node_type": "action"}]}', 100
 

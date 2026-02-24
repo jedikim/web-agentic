@@ -21,8 +21,10 @@ from typing import Any
 from src.core.types import (
     AutomationError,
     AuthRequiredError,
+    BotDetectedError,
     CaptchaDetectedError,
     FailureCode,
+    NavigationBlockedError,
     NetworkError,
     NotInteractableError,
     RecoveryPlan,
@@ -44,6 +46,8 @@ _EXCEPTION_MAP: dict[type[AutomationError], FailureCode] = {
     NetworkError: FailureCode.NETWORK_ERROR,
     CaptchaDetectedError: FailureCode.CAPTCHA_DETECTED,
     AuthRequiredError: FailureCode.AUTH_REQUIRED,
+    NavigationBlockedError: FailureCode.NAVIGATION_BLOCKED,
+    BotDetectedError: FailureCode.BOT_DETECTED,
 }
 
 # ── FailureCode-to-RecoveryPlan Mapping ──────────────
@@ -93,6 +97,16 @@ _ROUTE_TABLE: dict[FailureCode, RecoveryPlan] = {
         strategy="escalate_llm",
         tier=2,
         params={"mode": "plan", "re_extract": True},
+    ),
+    FailureCode.NAVIGATION_BLOCKED: RecoveryPlan(
+        strategy="skip",
+        tier=1,
+        params={"reason": "robots_txt"},
+    ),
+    FailureCode.BOT_DETECTED: RecoveryPlan(
+        strategy="retry",
+        tier=2,
+        params={"wait_ms": 5000, "stealth_upgrade": True},
     ),
 }
 
@@ -146,6 +160,15 @@ _ESCALATION_CHAINS: dict[FailureCode, list[RecoveryPlan]] = {
         RecoveryPlan(strategy="escalate_llm", tier=2, params={"mode": "plan", "re_extract": True}),
         RecoveryPlan(strategy="escalate_vision", tier=2, params={"mode": "detect"}),
         RecoveryPlan(strategy="human_handoff", tier=3, params={"type": "layout"}),
+    ],
+    FailureCode.NAVIGATION_BLOCKED: [
+        RecoveryPlan(strategy="skip", tier=1, params={"reason": "robots_txt"}),
+        RecoveryPlan(strategy="human_handoff", tier=3, params={"type": "navigation"}),
+    ],
+    FailureCode.BOT_DETECTED: [
+        RecoveryPlan(strategy="retry", tier=2, params={"wait_ms": 5000, "stealth_upgrade": True}),
+        RecoveryPlan(strategy="retry", tier=2, params={"wait_ms": 10000, "clear_cookies": True}),
+        RecoveryPlan(strategy="human_handoff", tier=3, params={"type": "bot_detection"}),
     ],
 }
 
@@ -327,6 +350,10 @@ class FallbackRouter:
             return FailureCode.NETWORK_ERROR
         if "captcha" in msg or "challenge" in msg:
             return FailureCode.CAPTCHA_DETECTED
+        if "robots.txt" in msg or "navigation blocked" in msg:
+            return FailureCode.NAVIGATION_BLOCKED
+        if any(kw in msg for kw in ("cloudflare", "bot detected", "access denied", "403")):
+            return FailureCode.BOT_DETECTED
 
         # Page-state heuristics.
         if context.page_state.has_captcha:

@@ -16,12 +16,20 @@ from __future__ import annotations
 
 import io
 import logging
+import os
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from src.core.types import ExtractedElement
 
+if TYPE_CHECKING:
+    from src.vision.image_batcher import GridMetadata
+
 logger = logging.getLogger(__name__)
+
+# ── Model default (overridable via env var) ────────
+
+DEFAULT_YOLO_MODEL = os.environ.get("YOLO_MODEL", "yolo26l.pt")
 
 
 # ── Detection Dataclass ─────────────────────────────
@@ -98,10 +106,10 @@ class YOLODetector:
 
     def __init__(
         self,
-        model_path: str = "yolo11n.pt",
+        model_path: str | None = None,
         confidence_threshold: float = 0.5,
     ) -> None:
-        self._model_path = model_path
+        self._model_path = model_path or DEFAULT_YOLO_MODEL
         self._confidence_threshold = confidence_threshold
         self._model: Any = None
         self._loaded = False
@@ -206,6 +214,44 @@ class YOLODetector:
         detections.sort(key=lambda det: det.confidence, reverse=True)
         return detections
 
+    async def detect_on_grid(
+        self,
+        grid_image: bytes,
+        grid_metadata: GridMetadata,
+    ) -> list[tuple[int, list[Detection]]]:
+        """Run YOLO detection on a grid image and group results by cell.
+
+        Each detection's centre point determines which grid cell it belongs
+        to.  The method reuses :meth:`detect` for the actual inference.
+
+        Args:
+            grid_image: PNG/JPEG bytes of the stitched grid image.
+            grid_metadata: Metadata produced by
+                :meth:`ImageBatcher.create_grid_with_metadata`.
+
+        Returns:
+            A list of ``(cell_index, detections)`` tuples, one per cell
+            that contains at least one detection.  Cells with no detections
+            are omitted.
+        """
+        detections = await self.detect(grid_image)
+
+        # Bucket detections by cell.
+        cell_map: dict[int, list[Detection]] = {}
+        for det in detections:
+            dx, dy, dw, dh = det.bbox
+            cx = dx + dw / 2
+            cy = dy + dh / 2
+
+            for cell in grid_metadata.cells:
+                gx, gy = cell.grid_offset
+                cw, ch = cell.cell_size
+                if gx <= cx < gx + cw and gy <= cy < gy + ch:
+                    cell_map.setdefault(cell.index, []).append(det)
+                    break
+
+        return sorted(cell_map.items())
+
     async def detect_elements(
         self,
         screenshot: bytes,
@@ -259,13 +305,13 @@ def create_yolo_detector(
     """Create and return a new ``YOLODetector`` instance.
 
     Args:
-        model_path: Path to YOLO model weights. Defaults to "yolo11n.pt".
+        model_path: Path to YOLO model weights. Defaults to YOLO_MODEL env var.
         confidence_threshold: Minimum confidence threshold.
 
     Returns:
         A configured ``YOLODetector``.
     """
     return YOLODetector(
-        model_path=model_path or "yolo11n.pt",
+        model_path=model_path,
         confidence_threshold=confidence_threshold,
     )

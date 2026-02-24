@@ -7,15 +7,15 @@ dependencies = [
     "playwright>=1.40",
     "pyyaml>=6.0",
     "aiosqlite>=0.19",
-    "google-generativeai>=0.8",
-    "pillow>=10.0",
+    "google-genai>=1.0",
+    "pillow>=11.0",
     "pydantic>=2.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
-    "pytest-asyncio>=0.23",
+    "pytest-asyncio>=1.0",
     "ruff>=0.5",
     "mypy>=1.10",
 ]
@@ -25,6 +25,11 @@ vision = [
 ]
 learning = [
     "dspy>=2.5",
+]
+server = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sse-starlette>=2.0",
 ]
 
 [tool.ruff]

@@ -9,7 +9,7 @@ See docs/PRD.md section 3.1 and docs/ARCHITECTURE.md for design rationale.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from playwright.async_api import (
     Error as PlaywrightError,
@@ -31,6 +31,8 @@ from src.core.types import (
 
 if TYPE_CHECKING:
     from playwright.async_api import Browser, BrowserContext, Page
+
+    from src.core.config import StealthConfig
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +107,8 @@ class Executor:
         browser: Browser | None = None,
         context: BrowserContext | None = None,
         default_timeout_ms: int = _DEFAULT_ACTION_TIMEOUT_MS,
+        behavior: Any | None = None,
+        nav_guard: Any | None = None,
     ) -> None:
         """Initialize the Executor.
 
@@ -113,14 +117,21 @@ class Executor:
             browser: Optional Browser instance for lifecycle management.
             context: Optional BrowserContext for lifecycle management.
             default_timeout_ms: Default timeout for actions in milliseconds.
+            behavior: Optional HumanBehavior for natural interactions.
+            nav_guard: Optional NavigationGuard for smart navigation.
         """
         self._page = page
         self._browser = browser
         self._context = context
         self._default_timeout_ms = default_timeout_ms
+        self._behavior = behavior
+        self._nav_guard = nav_guard
 
     async def goto(self, url: str) -> None:
         """Navigate to a URL.
+
+        If a ``NavigationGuard`` is attached, it is consulted first
+        (rate-limiting, robots.txt, homepage warming).
 
         Args:
             url: The URL to navigate to.
@@ -129,6 +140,8 @@ class Executor:
             NetworkError: If navigation fails or times out.
         """
         try:
+            if self._nav_guard is not None:
+                await self._nav_guard.pre_navigate(url, self._page)
             logger.debug("Navigating to %s", url)
             await self._page.goto(url, timeout=_DEFAULT_NAVIGATION_TIMEOUT_MS)
         except PlaywrightError as err:
@@ -147,14 +160,20 @@ class Executor:
         """
         opts = options or ClickOptions()
         try:
-            logger.debug("Clicking %s with options %s", selector, opts)
-            await self._page.click(
-                selector,
-                button=opts.button,  # type: ignore[arg-type]
-                click_count=opts.click_count,
-                force=opts.force,
-                timeout=opts.timeout_ms,
-            )
+            if self._behavior is not None and not opts.force:
+                logger.debug("Natural clicking %s", selector)
+                await self._behavior.natural_click(
+                    selector, timeout_ms=opts.timeout_ms,
+                )
+            else:
+                logger.debug("Clicking %s with options %s", selector, opts)
+                await self._page.click(
+                    selector,
+                    button=opts.button,  # type: ignore[arg-type]
+                    click_count=opts.click_count,
+                    force=opts.force,
+                    timeout=opts.timeout_ms,
+                )
         except PlaywrightError as err:
             raise _map_playwright_error(err, selector) from err
 
@@ -172,10 +191,14 @@ class Executor:
             NotInteractableError: If the element exists but is not editable.
         """
         try:
-            logger.debug("Typing into %s: %r", selector, text[:50])
-            await self._page.fill(
-                selector, text, timeout=self._default_timeout_ms
-            )
+            if self._behavior is not None:
+                logger.debug("Natural typing into %s: %r", selector, text[:50])
+                await self._behavior.natural_type(selector, text)
+            else:
+                logger.debug("Typing into %s: %r", selector, text[:50])
+                await self._page.fill(
+                    selector, text, timeout=self._default_timeout_ms
+                )
         except PlaywrightError as err:
             raise _map_playwright_error(err, selector) from err
 
@@ -204,10 +227,14 @@ class Executor:
         Raises:
             NetworkError: If a scroll-triggered navigation fails.
         """
-        delta_y = amount if direction == "down" else -amount
         try:
-            logger.debug("Scrolling %s by %d pixels", direction, amount)
-            await self._page.mouse.wheel(0, delta_y)
+            if self._behavior is not None and self._behavior._config.scroll_smooth:
+                logger.debug("Natural scrolling %s by %d pixels", direction, amount)
+                await self._behavior.natural_scroll(direction, amount)
+            else:
+                delta_y = amount if direction == "down" else -amount
+                logger.debug("Scrolling %s by %d pixels", direction, amount)
+                await self._page.mouse.wheel(0, delta_y)
         except PlaywrightError as err:
             raise _map_playwright_error(err) from err
 
@@ -316,14 +343,20 @@ class Executor:
             logger.warning("Error during executor close", exc_info=True)
 
 
-async def create_executor(headless: bool = True) -> Executor:
+async def create_executor(
+    headless: bool = True,
+    stealth: StealthConfig | None = None,
+) -> Executor:
     """Factory function to create a fully-initialized Executor.
 
     Launches a Chromium browser, creates a context and page, then wraps
-    them in an Executor instance.
+    them in an Executor instance.  When *stealth* is provided the context
+    is created via :func:`create_stealth_context` which injects anti-
+    detection JS patches.
 
     Args:
         headless: Whether to run the browser in headless mode.
+        stealth: Optional stealth configuration for anti-detection.
 
     Returns:
         A ready-to-use Executor instance.
@@ -333,8 +366,15 @@ async def create_executor(headless: bool = True) -> Executor:
         >>> await executor.goto("https://example.com")
         >>> await executor.close()
     """
+    from src.core.stealth import create_stealth_context
+
     pw = await async_playwright().start()
     browser = await pw.chromium.launch(headless=headless)
-    context = await browser.new_context()
+
+    if stealth is not None and stealth.enabled:
+        context = await create_stealth_context(browser, stealth)
+    else:
+        context = await browser.new_context()
+
     page = await context.new_page()
     return Executor(page=page, browser=browser, context=context)

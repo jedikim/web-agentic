@@ -6,6 +6,7 @@ All outputs are structured patches — never free-form code (P3 principle).
 """
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
@@ -13,23 +14,29 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 from src.ai.prompt_manager import PromptManager
 from src.core.types import ExtractedElement, PatchData, StepDefinition
 
 logger = logging.getLogger(__name__)
 
-# ── Cost constants (approximate USD per token) ───────
+# ── Model defaults (overridable via env vars) ────────
 
-_COST_PER_TOKEN: dict[str, float] = {
-    "gemini-3-flash-preview": 0.00001,
-    "gemini-2.5-flash": 0.00001,
-    "gemini-2.5-pro": 0.00005,
-    "gemini-2.0-flash": 0.00001,
-    "gemini-2.5-pro-preview-06-05": 0.00005,
+DEFAULT_FLASH_MODEL = os.environ.get("GEMINI_FLASH_MODEL", "gemini-3-flash-preview")
+DEFAULT_PRO_MODEL = os.environ.get("GEMINI_PRO_MODEL", "gemini-3.1-pro-preview")
+
+# ── Cost constants (USD per 1M tokens) ────────────────
+
+_COST_PER_MILLION: dict[str, dict[str, float]] = {
+    "gemini-3.1-pro-preview": {"input": 2.00, "output": 12.0},
+    "gemini-3-flash-preview": {"input": 0.50, "output": 3.0},
+    "gemini-3-pro-preview": {"input": 2.00, "output": 12.0},
+    "gemini-2.5-pro": {"input": 1.25, "output": 10.0},
+    "gemini-2.5-flash": {"input": 0.30, "output": 2.50},
 }
-_DEFAULT_COST_PER_TOKEN = 0.00001
+_DEFAULT_COST_PER_MILLION = {"input": 1.0, "output": 5.0}
 
 
 @dataclass
@@ -43,9 +50,14 @@ class UsageStats:
     call_log: list[dict[str, Any]] = field(default_factory=list)
 
     def record(self, model: str, tokens: int) -> None:
-        """Record a single API call."""
-        cost_per_token = _COST_PER_TOKEN.get(model, _DEFAULT_COST_PER_TOKEN)
-        cost = tokens * cost_per_token
+        """Record a single API call.
+
+        Uses a blended average of input/output cost for simplicity,
+        since we only track total tokens, not input vs output separately.
+        """
+        pricing = _COST_PER_MILLION.get(model, _DEFAULT_COST_PER_MILLION)
+        avg_per_million = (pricing["input"] + pricing["output"]) / 2
+        cost = (tokens / 1_000_000) * avg_per_million
         self.total_tokens += tokens
         self.total_cost_usd += cost
         self.calls += 1
@@ -72,17 +84,18 @@ class LLMPlanner:
         self,
         prompt_manager: PromptManager,
         api_key: str | None = None,
-        tier1_model: str = "gemini-3-flash-preview",
-        tier2_model: str = "gemini-2.5-pro",
+        tier1_model: str | None = None,
+        tier2_model: str | None = None,
+        max_cost_usd: float = 0.20,
     ) -> None:
         self.prompt_manager = prompt_manager
-        self.tier1_model = tier1_model
-        self.tier2_model = tier2_model
+        self.tier1_model = tier1_model or DEFAULT_FLASH_MODEL
+        self.tier2_model = tier2_model or DEFAULT_PRO_MODEL
         self.usage = UsageStats()
+        self._max_cost_usd = max_cost_usd
 
         resolved_key = api_key or os.environ.get("GEMINI_API_KEY", "") or os.environ.get("GOOGLE_API_KEY", "")
-        if resolved_key:
-            genai.configure(api_key=resolved_key)
+        self._client = genai.Client(api_key=resolved_key) if resolved_key else genai.Client()
 
     # ── Public API (ILLMPlanner Protocol) ────────────
 
@@ -113,6 +126,17 @@ class LLMPlanner:
             )
         except (json.JSONDecodeError, KeyError, ValueError) as exc:
             logger.warning("Tier1 plan parse failed (%s), escalating to tier2", exc)
+            steps = None
+
+        # Cost guard: skip Tier2 if budget exceeded
+        if self.usage.total_cost_usd >= self._max_cost_usd:
+            logger.warning(
+                "Cost limit $%.4f reached, skipping Tier2 plan escalation",
+                self._max_cost_usd,
+            )
+            if steps is not None:
+                return steps
+            raise ValueError("Tier1 plan parse failed and cost limit reached")
 
         # Tier 2 escalation
         self.usage.escalations += 1
@@ -169,6 +193,23 @@ class LLMPlanner:
             logger.warning(
                 "Tier1 select parse failed (%s), escalating to tier2", exc
             )
+            patch = None
+
+        # Cost guard: skip Tier2 if budget exceeded
+        if self.usage.total_cost_usd >= self._max_cost_usd:
+            logger.warning(
+                "Cost limit $%.4f reached, skipping Tier2 escalation",
+                self._max_cost_usd,
+            )
+            if patch is not None:
+                return patch
+            # Tier1 parse failed and no budget — return low-confidence fallback
+            return PatchData(
+                patch_type="selector_fix",
+                target="",
+                data={"selected_eid": "", "reasoning": "cost limit reached"},
+                confidence=0.0,
+            )
 
         # Tier 2 escalation
         self.usage.escalations += 1
@@ -182,6 +223,7 @@ class LLMPlanner:
         page_url: str = "",
         page_title: str = "",
         visible_text_snippet: str = "",
+        attachments: list[dict[str, Any]] | None = None,
     ) -> list[StepDefinition]:
         """Plan with current page context for better LLM decisions.
 
@@ -190,6 +232,8 @@ class LLMPlanner:
             page_url: Current page URL.
             page_title: Current page title.
             visible_text_snippet: Truncated visible text from page.
+            attachments: Optional list of attachment dicts with
+                filename, mime_type, and base64_data keys (for multimodal).
 
         Returns:
             Ordered list of StepDefinition objects.
@@ -202,8 +246,21 @@ class LLMPlanner:
             visible_text=visible_text_snippet[:500],
         )
 
+        # Build image parts from attachments for multimodal
+        images: list[dict[str, Any]] | None = None
+        if attachments:
+            images = [
+                {"mime_type": a["mime_type"], "base64_data": a["base64_data"]}
+                for a in attachments
+                if a.get("mime_type", "").startswith("image/")
+            ]
+            if not images:
+                images = None
+
         # Tier 1 attempt
-        response_text, tokens = await self._call_gemini(prompt, self.tier1_model)
+        response_text, tokens = await self._call_gemini(
+            prompt, self.tier1_model, images=images,
+        )
         self.usage.record(self.tier1_model, tokens)
 
         try:
@@ -216,10 +273,23 @@ class LLMPlanner:
             )
         except (json.JSONDecodeError, KeyError, ValueError) as exc:
             logger.warning("Tier1 plan_with_context parse failed (%s), escalating", exc)
+            steps = None
+
+        # Cost guard: skip Tier2 if budget exceeded
+        if self.usage.total_cost_usd >= self._max_cost_usd:
+            logger.warning(
+                "Cost limit $%.4f reached, skipping Tier2 plan escalation",
+                self._max_cost_usd,
+            )
+            if steps is not None:
+                return steps
+            raise ValueError("Tier1 plan parse failed and cost limit reached")
 
         # Tier 2 escalation
         self.usage.escalations += 1
-        response_text, tokens = await self._call_gemini(prompt, self.tier2_model)
+        response_text, tokens = await self._call_gemini(
+            prompt, self.tier2_model, images=images,
+        )
         self.usage.record(self.tier2_model, tokens)
         steps, _ = self._parse_plan_response(response_text)
         return steps
@@ -273,21 +343,45 @@ class LLMPlanner:
 
     # ── Internal: Gemini API call ────────────────────
 
-    async def _call_gemini(self, prompt: str, model: str) -> tuple[str, int]:
+    async def _call_gemini(
+        self,
+        prompt: str,
+        model: str,
+        images: list[dict[str, Any]] | None = None,
+    ) -> tuple[str, int]:
         """Call the Gemini API and return (response_text, tokens_used).
 
         This method wraps the actual API call and is designed to be
-        easily mocked in unit tests.
+        easily mocked in unit tests. When *images* are provided the
+        call becomes multimodal (text + inline image parts).
 
         Args:
             prompt: The full prompt string.
             model: Gemini model name.
+            images: Optional list of dicts with ``mime_type`` and
+                ``base64_data`` keys for inline image content.
 
         Returns:
             Tuple of (response text, token count).
         """
-        generative_model = genai.GenerativeModel(model)
-        response = await generative_model.generate_content_async(prompt)
+        # Build content: text-only or multimodal (text + images)
+        if images:
+            content_parts: list[Any] = [prompt]
+            for img in images:
+                content_parts.append(
+                    types.Part.from_bytes(
+                        data=base64.b64decode(img["base64_data"]),
+                        mime_type=img["mime_type"],
+                    )
+                )
+            response = await self._client.aio.models.generate_content(
+                model=model, contents=content_parts,
+            )
+        else:
+            response = await self._client.aio.models.generate_content(
+                model=model, contents=prompt,
+            )
+
         text = response.text or ""
         # Estimate token count from usage metadata if available,
         # otherwise approximate from text length
@@ -490,14 +584,22 @@ def _extract_json(text: str) -> str:
 # ── Factory ──────────────────────────────────────────
 
 
-def create_llm_planner(api_key: str | None = None) -> LLMPlanner:
+def create_llm_planner(
+    api_key: str | None = None,
+    max_cost_usd: float = 0.20,
+) -> LLMPlanner:
     """Create an ``LLMPlanner`` with default configuration.
 
     Args:
         api_key: Gemini API key. Falls back to ``GEMINI_API_KEY`` env var.
+        max_cost_usd: Maximum total cost before skipping Tier2 escalation.
 
     Returns:
         Configured ``LLMPlanner`` instance.
     """
     prompt_manager = PromptManager()
-    return LLMPlanner(prompt_manager=prompt_manager, api_key=api_key)
+    return LLMPlanner(
+        prompt_manager=prompt_manager,
+        api_key=api_key,
+        max_cost_usd=max_cost_usd,
+    )

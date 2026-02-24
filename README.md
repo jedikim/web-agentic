@@ -1,634 +1,289 @@
-# Web-Agentic — 적응형 웹 자동화 엔진
+# Web-Agentic — Self-Evolving Adaptive Web Automation Engine
 
-> "반복 실행할수록 LLM 호출이 줄어드는" 웹 자동화 시스템
+> **[한국어 버전 (Korean)](./README.ko.md)**
 
-규칙 기반 결정론적 실행을 우선하고, 실패 시에만 LLM/VLM으로 에스컬레이션하는 적응형 웹 자동화 엔진입니다.
-성공한 패턴은 자동으로 규칙으로 승격되어, 반복 실행할수록 비용이 줄어듭니다.
+An adaptive web automation engine where **the LLM is the decision-maker**. The LLM analyzes user intent, plans execution steps, and selects DOM elements. Successful selectors are cached for zero-cost repeated execution. When automation fails, the **self-evolution engine** automatically analyzes failure patterns, generates code fixes, and awaits human approval before merging.
 
-```
-비용 에스컬레이션: R(규칙) → E+R(휴리스틱) → L1(Flash) → L2(Pro) → YOLO → VLM → Human Handoff
-                   $0        $0              ~$0.001      ~$0.01     로컬     ~$0.02
-```
+### Key Differentiators
 
-## 목차
-
-- [빠른 시작](#빠른-시작)
-- [아키텍처](#아키텍처)
-- [프로젝트 구조](#프로젝트-구조)
-- [워크플로우 DSL](#워크플로우-dsl)
-- [설정](#설정)
-- [사용법](#사용법)
-- [테스트](#테스트)
-- [커스텀 워크플로우 작성](#커스텀-워크플로우-작성)
-- [커스텀 규칙 추가](#커스텀-규칙-추가)
+- **LLM-First**: The LLM analyzes intent, plans execution, and selects elements. Rules serve as a cache, not the primary decision path.
+- **Self-Evolving**: When automation fails, the system automatically analyzes failure patterns, generates code fixes via Gemini Pro, tests in a git sandbox, and awaits human approval before merging.
+- **Smart Caching**: First execution uses LLM (~$0.02/task), repeated executions hit cache (~$0.005/task).
+- **Vision Fallback**: When LLM confidence drops below 0.7, YOLO/VLM visual grounding kicks in.
+- **Stealth & Human Simulation**: Anti-detection JS patches (3 levels), Bézier-curve mouse movement, natural typing delays, and smart navigation to bypass bot detection.
+- **Adaptive Retry**: FallbackRouter-driven exponential backoff with escalation chains (retry → LLM → Vision → Human Handoff) and automatic replanning on consecutive failures.
+- **Human-in-the-Loop**: CAPTCHA, authentication, and evolution approvals always require human intervention.
 
 ---
 
-## 빠른 시작
+## System Overview
 
-### 요구사항
+```mermaid
+graph TB
+    A["User Intent"] --> B["LLM Planner"]
+    B --> C{"Selector Cache"}
+    C -->|hit| F["Execute (Playwright)"]
+    C -->|miss| D["DOM Extract"]
+    D --> E["LLM Select Element"]
+    E --> F
+    F --> G{"Verify"}
+    G -->|success| H["Cache Save"]
+    G -->|failure| I["Vision Fallback (YOLO/VLM)"]
+    I --> F
+    H --> J["Scenario Results"]
+    J --> K["Evolution Engine"]
+
+    subgraph Evolution ["Self-Evolution Pipeline"]
+        K --> L["Analyze Failure"]
+        L --> M["Generate Fix (Gemini Pro)"]
+        M --> N["Test in Sandbox"]
+        N --> O{"Human Review"}
+        O -->|approve| P["Merge + Tag"]
+        O -->|reject| Q["Discard Branch"]
+    end
+
+    style Evolution fill:#f0f4ff,stroke:#4a6fa5
+```
+
+---
+
+## Quick Start
+
+### Prerequisites
 
 - Python 3.11+
-- Chromium (Playwright가 자동 설치)
+- Node.js 18+ (for Evolution UI)
+- Google Gemini API key
 
-### 설치
+### Install & Run
 
 ```bash
-# 저장소 클론
+# Clone
 git clone https://github.com/jedikim/web-agentic.git
 cd web-agentic
 
-# 자동 설치 (의존성 + 브라우저 + 테스트)
-chmod +x scripts/setup.sh
-./scripts/setup.sh
-```
-
-또는 수동 설치:
-
-```bash
-# 패키지 설치 (개발 도구 포함)
-pip install -e ".[dev]"
-
-# Playwright 브라우저 설치
+# Install backend (with all optional deps)
+pip install -e ".[dev,server,vision,learning]"
 python -m playwright install chromium
 
-# 데이터 디렉토리 생성
-mkdir -p data/episodes data/artifacts
+# Set API key
+export GEMINI_API_KEY="your-key"
 
-# 테스트 실행으로 검증
-python -m pytest tests/ -q
+# Start API server
+python scripts/start_server.py  # localhost:8000
+
+# Start Evolution UI (separate terminal)
+cd evolution-ui
+npm install
+npm run dev  # localhost:5173
 ```
 
-### 선택적 의존성
+### Minimal Install (automation only, no evolution)
 
 ```bash
-# Vision 기능 (YOLO 로컬 탐지)
-pip install -e ".[vision]"   # ultralytics + opencv-python
-
-# 자기학습 기능 (DSPy 최적화)
-pip install -e ".[learning]"  # dspy
+pip install -e ".[dev]"
+python -m playwright install chromium
 ```
 
-### LLM 설정 (선택)
+### SDK Quick Start
 
-LLM 기능을 사용하려면 Google Gemini API 키가 필요합니다.
-규칙 기반 실행만 사용할 경우 API 키 없이도 동작합니다.
+```python
+from src.web_agent import WebAgent
 
-```bash
-export GEMINI_API_KEY="your-api-key-here"
+# Standard usage (stealth enabled by default)
+async with WebAgent(headless=True, stealth_level="standard") as agent:
+    await agent.goto("https://example.com")
+    result = await agent.run("click the More information link")
+    print(f"Success: {result.success}, Cost: ${result.total_cost_usd:.4f}")
 ```
 
 ---
 
-## 아키텍처
+## Session API
 
-6개 핵심 모듈이 Protocol 기반 인터페이스로 통신합니다:
+The Session API provides multi-turn automation sessions with persistent browser state, cost tracking, and human handoff support.
 
-```
-사용자 자연어 지시
-    ↓
-┌─────────────────────────────────────────────┐
-│  Orchestrator (오케스트레이터)                 │
-│                                             │
-│  StepQueue에서 스텝을 하나씩 꺼내 실행:         │
-│                                             │
-│  1. R(Rule Engine) — 규칙 매칭 시도 [토큰 $0]  │
-│     ├─ 성공 → X(Executor) 실행 → V(Verifier) │
-│     └─ 실패 ↓                                │
-│  2. E(Extractor) + R(Heuristic) [토큰 $0]    │
-│     ├─ 성공 → X 실행 → V                     │
-│     └─ 실패 ↓                                │
-│  3. F(Fallback Router) — 실패 분류            │
-│     → 최적 복구 경로 결정:                      │
-│       ├ L1(Flash) → L2(Pro) — LLM 선택       │
-│       ├ YOLO → VLM — Vision 기반             │
-│       └ Human Handoff — 사람에게 위임          │
-│                                             │
-│  V(검증) 성공 → Memory에 패턴 기록             │
-│  3회 성공 → R에 규칙 자동 승격                  │
-└─────────────────────────────────────────────┘
-```
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/sessions/` | Create a new session |
+| `POST` | `/api/sessions/{id}/turn` | Execute an intent (multi-turn) |
+| `GET` | `/api/sessions/{id}/screenshot` | Get current page screenshot |
+| `GET` | `/api/sessions/{id}/handoffs` | List pending human handoffs |
+| `POST` | `/api/sessions/{id}/handoffs/{rid}/resolve` | Resolve a handoff |
+| `DELETE` | `/api/sessions/{id}` | Close session |
+| `POST` | `/api/run` | One-shot execution (no session) |
 
-### 7대 설계 원칙
-
-| 원칙 | 설명 |
-|------|------|
-| **Token Zero First** | 규칙 매칭으로 해결 가능하면 LLM을 호출하지 않음 |
-| **Select-Only Problem** | LLM 프롬프트는 항상 "후보 중 선택" 형태로 제한 |
-| **Patch-Only Output** | LLM 출력은 `PatchData` 구조체만 허용, 코드 생성 금지 |
-| **Verify-After-Act** | 모든 액션 후 반드시 검증 수행 |
-| **Learn From Failure** | 성공 패턴 3회 반복 → 규칙으로 자동 승격 |
-| **Human Handoff** | CAPTCHA/2FA/결제는 사람에게 위임 |
-| **Cost Cascading** | 저비용 → 고비용 순서로 에스컬레이션 보장 |
-
-### 핵심 모듈
-
-| 모듈 | 파일 | 역할 | 토큰 비용 |
-|------|------|------|----------|
-| **X** (Executor) | `src/core/executor.py` | Playwright 브라우저 제어 | 0 |
-| **E** (Extractor) | `src/core/extractor.py` | DOM → 구조화 JSON 추출 | 0 |
-| **R** (Rule Engine) | `src/core/rule_engine.py` | YAML 규칙 매칭 + 동의어 사전 | 0 |
-| **V** (Verifier) | `src/core/verifier.py` | 액션 후 상태 검증 | 0 |
-| **F** (Fallback Router) | `src/core/fallback_router.py` | 실패 분류 + 복구 경로 결정 | 0 |
-| **L** (LLM Planner) | `src/ai/llm_planner.py` | Gemini 기반 계획/선택 | 유료 |
-
-### 보조 모듈
-
-| 모듈 | 파일 | 역할 |
-|------|------|------|
-| Orchestrator | `src/core/orchestrator.py` | 전체 실행 루프 + 에스컬레이션 |
-| StepQueue | `src/workflow/step_queue.py` | FIFO 스텝 큐 관리 |
-| DSL Parser | `src/workflow/dsl_parser.py` | YAML 워크플로우 파싱 |
-| Memory Manager | `src/learning/memory_manager.py` | 4계층 메모리 (Working/Episode/Policy/Artifact) |
-| Pattern DB | `src/learning/pattern_db.py` | SQLite 패턴 기록 |
-| Rule Promoter | `src/learning/rule_promoter.py` | 패턴 → 규칙 자동 승격 |
-| Prompt Manager | `src/ai/prompt_manager.py` | 프롬프트 템플릿 버전 관리 |
-| Patch System | `src/ai/patch_system.py` | 구조화된 패치 적용 |
-| YOLO Detector | `src/vision/yolo_detector.py` | 로컬 객체 탐지 |
-| VLM Client | `src/vision/vlm_client.py` | Gemini 멀티모달 비전 |
-| Image Batcher | `src/vision/image_batcher.py` | 스크린샷 배칭/리사이즈 |
-| Coord Mapper | `src/vision/coord_mapper.py` | 스크린샷↔페이지 좌표 변환 |
-| Handoff | `src/core/handoff.py` | 사람 위임 인터페이스 |
+See [API Reference](./docs/API-REFERENCE.md) for full request/response details.
 
 ---
 
-## 프로젝트 구조
+## Automation UI
+
+The Evolution UI (`evolution-ui/`) now includes two additional pages:
+
+- **Automation** — One-shot task execution with real-time step progress and cost display
+- **Sessions** — Multi-turn session management with live screenshots and handoff handling
+
+---
+
+## Evolution Pipeline
+
+The self-evolution engine follows a state machine that automatically detects failures, generates fixes, and requests human approval.
+
+```mermaid
+stateDiagram-v2
+    [*] --> PENDING
+    PENDING --> ANALYZING
+    ANALYZING --> GENERATING
+    GENERATING --> TESTING
+
+    TESTING --> AWAITING_APPROVAL : tests pass
+    TESTING --> ANALYZING : tests fail, retry < 1
+    TESTING --> FAILED : tests fail, retry exhausted
+
+    AWAITING_APPROVAL --> MERGED : approve
+    AWAITING_APPROVAL --> REJECTED : reject
+
+    MERGED --> [*]
+    REJECTED --> [*]
+    FAILED --> [*]
+```
+
+When tests fail, the engine retries once by looping back through analysis and code generation. After exhausting retries, it moves to the FAILED state for manual investigation.
+
+---
+
+## Project Structure
 
 ```
 web-agentic/
 ├── src/
-│   ├── core/                    # 핵심 모듈 (X, E, R, V, F)
-│   │   ├── types.py             # 공유 타입/인터페이스 정의
-│   │   ├── executor.py          # X — Playwright 래퍼
-│   │   ├── extractor.py         # E — DOM 추출기
-│   │   ├── rule_engine.py       # R — 규칙 엔진
-│   │   ├── verifier.py          # V — 검증기
-│   │   ├── fallback_router.py   # F — 장애 라우터
-│   │   ├── orchestrator.py      # 오케스트레이터
-│   │   └── handoff.py           # 사람 위임
-│   ├── ai/                      # LLM 모듈
-│   │   ├── llm_planner.py       # L — Gemini 플래너
-│   │   ├── prompt_manager.py    # 프롬프트 관리
-│   │   └── patch_system.py      # 패치 시스템
-│   ├── vision/                  # 비전 모듈
-│   │   ├── yolo_detector.py     # YOLO 탐지
-│   │   ├── vlm_client.py        # VLM 클라이언트
-│   │   ├── image_batcher.py     # 이미지 배칭
-│   │   └── coord_mapper.py      # 좌표 매핑
-│   ├── learning/                # 자기학습 모듈
-│   │   ├── memory_manager.py    # 4계층 메모리
-│   │   ├── pattern_db.py        # 패턴 DB
-│   │   ├── rule_promoter.py     # 규칙 승격
-│   │   └── dspy_optimizer.py    # DSPy 최적화 (선택)
-│   └── workflow/                # 워크플로우
-│       ├── dsl_parser.py        # YAML 파서
-│       └── step_queue.py        # 스텝 큐
-├── config/
-│   ├── settings.yaml            # 엔진 설정
-│   ├── synonyms.yaml            # 동의어 사전 (한/영)
-│   ├── rules/                   # 67개 사전 정의 규칙
-│   │   ├── popup_common.yaml    # 팝업/모달 처리 (17개)
-│   │   ├── error_detection.yaml # 에러 페이지 감지 (12개)
-│   │   ├── login_detection.yaml # 로그인/인증 감지 (12개)
-│   │   ├── pagination.yaml      # 페이지네이션 (12개)
-│   │   └── filter_sort.yaml     # 필터/정렬 (14개)
-│   └── workflows/               # 워크플로우 정의
-│       └── naver_shopping.yaml  # 네이버 쇼핑 PoC
-├── scripts/
-│   ├── setup.sh                 # 원클릭 설치
-│   ├── run_poc.py               # PoC 실행기
-│   └── benchmark.py             # 성능 벤치마크
-├── tests/
-│   ├── unit/                    # 단위 테스트 (20개 파일)
-│   └── integration/             # 통합 테스트 (2개 파일)
-├── data/                        # 런타임 데이터 (gitignored)
-│   ├── episodes/                # Episode 메모리
-│   ├── artifacts/               # Artifact 메모리
-│   └── patterns.db              # Policy 메모리 (SQLite)
-├── docs/
-│   ├── PRD.md                   # 제품 요구사항
-│   └── ARCHITECTURE.md          # 아키텍처 상세
-└── pyproject.toml               # 프로젝트 설정
+│   ├── core/           # Automation engine
+│   │   ├── llm_orchestrator.py   # LLM-First orchestrator + retry/replan
+│   │   ├── executor.py           # Playwright wrapper (stealth/behavior)
+│   │   ├── executor_pool.py      # Session pool (browser reuse)
+│   │   ├── extractor.py          # DOM → structured JSON
+│   │   ├── rule_engine.py        # Selector cache (was rule engine)
+│   │   ├── verifier.py           # Post-action verification
+│   │   ├── fallback_router.py    # Failure classification + escalation
+│   │   ├── stealth.py            # Browser anti-detection patches
+│   │   ├── human_behavior.py     # Natural mouse/typing/scroll
+│   │   ├── navigation.py         # Rate limit, robots.txt, warming
+│   │   └── config.py             # YAML → dataclass config loader
+│   ├── ai/             # LLM modules
+│   │   ├── llm_planner.py        # Gemini Flash/Pro planner
+│   │   ├── prompt_manager.py     # Prompt template versioning
+│   │   └── patch_system.py       # Structured patch generation
+│   ├── vision/         # Vision modules
+│   │   ├── yolo_detector.py      # YOLO local inference
+│   │   ├── vlm_client.py         # VLM API client (Gemini multimodal)
+│   │   ├── image_batcher.py      # Screenshot batching/resizing
+│   │   └── coord_mapper.py       # Screenshot ↔ page coordinate mapping
+│   ├── learning/       # Learning modules
+│   │   ├── pattern_db.py         # Selector cache (SQLite, TTL-based)
+│   │   ├── rule_promoter.py      # Cache save logic
+│   │   ├── dspy_optimizer.py     # DSPy prompt optimization
+│   │   └── memory_manager.py     # 4-tier memory system
+│   ├── workflow/       # Workflow DSL
+│   │   ├── dsl_parser.py         # YAML workflow parser
+│   │   └── step_queue.py         # FIFO step queue
+│   ├── evolution/      # Self-evolution engine
+│   │   ├── pipeline.py           # Evolution cycle state machine
+│   │   ├── analyzer.py           # Failure pattern detection
+│   │   ├── code_generator.py     # Gemini Pro code fix generation
+│   │   ├── sandbox.py            # Git branch isolation + testing
+│   │   ├── version_manager.py    # Version tagging, merge, rollback
+│   │   ├── db.py                 # Evolution DB (aiosqlite)
+│   │   └── notifier.py           # SSE event broadcaster
+│   ├── web_agent.py              # SDK Facade (WebAgent)
+│   └── api/            # FastAPI server
+│       ├── session_db.py         # Session database (aiosqlite)
+│       ├── session_manager.py    # Session manager (live sessions)
+│       ├── routes/
+│       │   ├── sessions.py       # Session API routes
+│       │   └── run.py            # One-shot execution API route
+│       └── ...                   # REST routes + models
+├── evolution-ui/       # React 19 + Vite + Tailwind CSS dashboard
+│   ├── src/
+│   │   ├── pages/                # Dashboard, Evolutions, Scenarios, Versions, Automation, Sessions
+│   │   └── components/           # Shared UI components
+│   └── package.json
+├── config/             # YAML rules, synonyms, settings
+│   ├── rules/                    # Pre-defined rules (cache seeds)
+│   ├── synonyms.yaml             # Korean/English synonym dictionary
+│   └── settings.yaml             # Engine configuration
+├── tests/              # 968 tests (unit, integration, e2e)
+│   ├── unit/
+│   ├── integration/
+│   └── e2e/
+├── docs/               # Documentation
+├── scripts/            # Utility scripts
+├── data/               # Runtime data (gitignored)
+└── pyproject.toml
 ```
 
 ---
 
-## 워크플로우 DSL
+## Testing
 
-워크플로우는 YAML 파일로 정의합니다. 9종류의 노드 타입을 지원합니다.
+| Category | Tests | Command |
+|----------|------:|---------|
+| Unit | 816 | `pytest tests/unit/` |
+| Integration | 95 | `pytest tests/integration/` |
+| E2E | 57 | `pytest tests/e2e/` |
+| **Total** | **968** | `pytest tests/` |
 
-### 노드 타입
-
-| 노드 | 설명 | 예시 |
-|------|------|------|
-| `action` | 브라우저 액션 (클릭, 타이핑, 이동 등) | 버튼 클릭, 텍스트 입력 |
-| `extract` | DOM에서 데이터 추출 | 상품 목록, 가격 정보 |
-| `decide` | 조건 판단 | 결과가 관련 있는지 확인 |
-| `verify` | 상태 검증 | 정렬 순서 변경 확인 |
-| `branch` | 조건 분기 | if/else 로직 |
-| `loop` | 반복 실행 | 페이지네이션 순회 |
-| `wait` | 대기 | 네트워크 idle, 요소 출현 |
-| `recover` | 에러 복구 | 재시도 로직 |
-| `handoff` | 사람에게 위임 | CAPTCHA 처리 |
-
-### 워크플로우 예시
-
-```yaml
-workflow:
-  name: "naver_shopping_search"
-  description: "네이버 쇼핑에서 상품 검색 후 정렬"
-
-  steps:
-    - id: "open_page"
-      intent: "Go to Naver Shopping"
-      node_type: "action"
-      arguments: ["https://shopping.naver.com"]
-      max_retries: 2
-      timeout_ms: 15000
-
-    - id: "search_product"
-      intent: "Search for wireless earbuds"
-      node_type: "action"
-      arguments: ["무선 이어폰"]
-      verify:
-        type: "url_contains"
-        value: "query="
-        timeout_ms: 5000
-
-    - id: "sort_popular"
-      intent: "Sort by popularity"
-      node_type: "action"
-      verify:
-        type: "url_contains"
-        value: "sort=rel"
-
-    - id: "extract_products"
-      intent: "Extract product list"
-      node_type: "extract"
-      max_retries: 3
-
-    - id: "loop_pages"
-      intent: "Loop through next 3 pages"
-      node_type: "loop"
-      arguments: ["next_page", "3"]
-      verify:
-        type: "url_changed"
-```
-
-### 스텝 필드 설명
-
-| 필드 | 필수 | 타입 | 설명 |
-|------|------|------|------|
-| `id` | O | string | 고유 식별자 |
-| `intent` | O | string | 자연어 의도 (한/영 모두 가능) |
-| `node_type` | - | string | 노드 타입 (기본: `action`) |
-| `selector` | - | string | CSS 셀렉터 (없으면 R/E가 자동 탐색) |
-| `arguments` | - | list | 추가 인수 (URL, 검색어 등) |
-| `max_retries` | - | int | 최대 재시도 횟수 (1~20, 기본: 3) |
-| `timeout_ms` | - | int | 타임아웃 밀리초 (500~300000, 기본: 10000) |
-| `verify` | - | object | 액션 후 검증 조건 |
-
-### 검증 조건 타입
-
-| 타입 | 설명 |
-|------|------|
-| `url_changed` | URL이 변경되었는지 확인 |
-| `url_contains` | URL에 특정 문자열 포함 여부 |
-| `element_visible` | 특정 요소가 화면에 보이는지 |
-| `element_gone` | 특정 요소가 사라졌는지 |
-| `text_present` | 페이지에 특정 텍스트 존재 여부 |
-| `network_idle` | 네트워크 요청 완료 대기 |
-
----
-
-## 설정
-
-`config/settings.yaml`에서 엔진의 모든 설정을 관리합니다.
-
-### 주요 설정 항목
-
-```yaml
-# 엔진 기본 설정
-engine:
-  max_retries: 3           # 스텝당 기본 재시도
-  step_timeout_ms: 30000   # 스텝당 기본 타임아웃
-  budget_limit_usd: 0.05   # 태스크당 예산 한도
-
-# 브라우저
-browser:
-  headless: true
-  viewport_width: 1920
-  viewport_height: 1080
-  default_timeout_ms: 30000
-
-# LLM (Gemini)
-llm:
-  tier1:
-    model: "gemini-2.0-flash"   # 저비용 빠른 모델
-    temperature: 0.1
-  tier2:
-    model: "gemini-2.5-pro-preview-06-05"  # 고성능 모델
-    temperature: 0.2
-  confidence_threshold: 0.7  # 이 미만이면 tier2로 에스컬레이션
-
-# 자기학습
-learning:
-  pattern_min_success: 3    # 규칙 승격에 필요한 최소 성공 횟수
-  pattern_min_ratio: 0.8    # 최소 성공률
-
-# 비용 예산
-budget:
-  per_task_usd: 0.05
-  per_step_usd: 0.01
-```
-
-### 동의어 사전 (`config/synonyms.yaml`)
-
-한국어/영어 동의어를 정의하여 규칙 매칭의 범위를 확장합니다:
-
-```yaml
-sort:
-  인기순: ["popularity", "인기", "popular", "인기순정렬"]
-  최신순: ["latest", "newest", "최신", "날짜순"]
-  낮은가격순: ["price_low", "lowest_price", "가격낮은순"]
-
-popup_close:
-  닫기: ["close", "dismiss", "x", "cancel", "아니요"]
-  확인: ["ok", "confirm", "accept", "동의"]
-```
-
----
-
-## 사용법
-
-### 1. PoC 실행
-
-네이버 쇼핑 워크플로우를 실행합니다:
+### Quick Quality Check
 
 ```bash
-# 기본 실행 (headless)
-python scripts/run_poc.py
-
-# 브라우저 화면 보면서 실행
-python scripts/run_poc.py --no-headless
-
-# 5회 반복 (학습 효과 확인)
-python scripts/run_poc.py --iterations 5
-
-# 커스텀 워크플로우
-python scripts/run_poc.py --workflow config/workflows/my_workflow.yaml
-
-# 디버그 로그 출력
-python scripts/run_poc.py --log-level DEBUG
-```
-
-결과는 `data/poc_results.json`에 저장됩니다.
-
-### 2. 벤치마크
-
-PRD 성공 기준 대비 성능을 측정합니다:
-
-```bash
-# 5회 반복 벤치마크 (기본)
-python scripts/benchmark.py
-
-# 20회 반복 (학습 효과 추세 분석)
-python scripts/benchmark.py --iterations 20
-
-# 브라우저 보면서 실행
-python scripts/benchmark.py --no-headless --iterations 10
-```
-
-**PRD 성공 기준:**
-
-| 기준 | 목표 |
-|------|------|
-| E2E 성공률 | >= 80% (20회 중 16회) |
-| 태스크당 비용 | <= $0.01 |
-| 실행 시간 | <= 90초 |
-| LLM 호출 추세 | 반복할수록 감소 |
-
-결과는 `data/benchmark_results.json`에 저장됩니다.
-
-### 3. Python에서 직접 사용
-
-```python
-import asyncio
-from src.core.executor import create_executor
-from src.core.extractor import DOMExtractor
-from src.core.rule_engine import RuleEngine
-from src.core.verifier import Verifier
-from src.core.fallback_router import create_fallback_router
-from src.core.orchestrator import Orchestrator
-from src.learning.memory_manager import create_memory_manager
-from src.workflow.dsl_parser import parse_workflow
-
-async def main():
-    # 모듈 초기화
-    executor = await create_executor(headless=True)
-    extractor = DOMExtractor()
-    rule_engine = RuleEngine()
-    verifier = Verifier()
-    fallback_router = create_fallback_router()
-    memory = await create_memory_manager("data")
-
-    # 오케스트레이터 조립 (DI)
-    orchestrator = Orchestrator(
-        executor=executor,
-        extractor=extractor,
-        rule_engine=rule_engine,
-        verifier=verifier,
-        fallback_router=fallback_router,
-        planner=None,  # LLM 없이 규칙만 사용
-        memory=memory,
-    )
-
-    # 워크플로우 파싱 & 실행
-    steps = parse_workflow("config/workflows/naver_shopping.yaml")
-    results = await orchestrator.run(steps)
-
-    # 결과 확인
-    for r in results:
-        print(f"  {r.step_id}: {'OK' if r.success else 'FAIL'} "
-              f"(method={r.method}, tokens={r.tokens_used})")
-
-    await executor.close()
-
-asyncio.run(main())
-```
-
-### 4. 개별 모듈 사용
-
-```python
-# 규칙 매칭만 사용
-from src.core.rule_engine import RuleEngine
-from src.core.types import PageState
-
-engine = RuleEngine()
-state = PageState(url="https://shopping.naver.com", title="네이버쇼핑")
-match = engine.match("인기순 정렬", state)
-if match:
-    print(f"규칙 매칭: {match.rule_id} → {match.selector}")
-
-# DOM 추출만 사용
-from src.core.extractor import DOMExtractor
-extractor = DOMExtractor()
-# page = playwright page 객체
-elements = await extractor.extract_clickables(page)
-products = await extractor.extract_products(page)
-
-# 검증만 사용
-from src.core.verifier import Verifier
-from src.core.types import VerifyCondition
-verifier = Verifier()
-cond = VerifyCondition(type="url_contains", value="sort=", timeout_ms=5000)
-result = await verifier.verify(cond, page)
+ruff check --fix          # Lint
+mypy --strict             # Type check
+pytest tests/ -q          # All tests
 ```
 
 ---
 
-## 테스트
+## API Endpoints
 
-```bash
-# 전체 테스트 (675개)
-python -m pytest tests/ -q
+The FastAPI server (port 8000) exposes the following endpoints:
 
-# 단위 테스트만
-python -m pytest tests/unit/ -q
-
-# 통합 테스트만
-python -m pytest tests/integration/ -q
-
-# 특정 모듈 테스트
-python -m pytest tests/unit/test_rule_engine.py -v
-python -m pytest tests/unit/test_orchestrator.py -v
-
-# 커버리지 (pytest-cov 필요)
-python -m pytest tests/ --cov=src --cov-report=term-missing
-```
-
-### 테스트 구성
-
-| 카테고리 | 파일 수 | 테스트 수 | 범위 |
-|---------|---------|----------|------|
-| **Phase 1** — Deterministic Core | 5 | ~132 | X, E, R, V, DSL Parser |
-| **Phase 2** — Adaptive Fallback | 7 | ~220 | Orchestrator, StepQueue, F, L, Prompt, Patch, Memory |
-| **Phase 3** — Vision | 4 | ~80 | YOLO, VLM, ImageBatcher, CoordMapper |
-| **Phase 4** — Self-Improving | 3 | ~75 | PatternDB, RulePromoter, DSPy |
-| **Phase 5** — Exception Hardening | 2 | ~99 | 67개 규칙, Handoff |
-| **Phase 6** — Integration | 2 | ~69 | 엔진 와이어링, PoC 스크립트 |
-| **합계** | **22** | **675** | |
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/evolution/trigger` | Start an evolution cycle |
+| `GET` | `/api/evolution/` | List all evolutions |
+| `POST` | `/api/evolution/{id}/approve` | Approve evolution → merge |
+| `POST` | `/api/evolution/{id}/reject` | Reject evolution → discard |
+| `POST` | `/api/scenarios/run` | Run a scenario |
+| `GET` | `/api/scenarios/results` | Scenario result history |
+| `GET` | `/api/scenarios/trends` | Scenario trends |
+| `GET` | `/api/versions/` | Version list |
+| `GET` | `/api/progress/stream` | SSE real-time events |
 
 ---
 
-## 커스텀 워크플로우 작성
+## Documentation
 
-`config/workflows/` 에 새 YAML 파일을 만들면 됩니다:
-
-```yaml
-workflow:
-  name: "my_custom_workflow"
-  description: "내 커스텀 워크플로우"
-
-  steps:
-    # 1. 페이지 이동
-    - id: "goto_site"
-      intent: "Go to example.com"
-      node_type: "action"
-      arguments: ["https://example.com"]
-      timeout_ms: 15000
-
-    # 2. 검색
-    - id: "search"
-      intent: "Search for Python books"
-      node_type: "action"
-      arguments: ["Python"]
-      verify:
-        type: "url_contains"
-        value: "search"
-
-    # 3. 데이터 추출
-    - id: "extract_results"
-      intent: "Extract search results"
-      node_type: "extract"
-
-    # 4. 조건 분기
-    - id: "check_results"
-      intent: "Check if results exist"
-      node_type: "decide"
-      arguments: ["has_results"]
-
-    # 5. 페이지네이션
-    - id: "next_pages"
-      intent: "Loop through next 5 pages"
-      node_type: "loop"
-      arguments: ["next_page", "5"]
-      verify:
-        type: "url_changed"
-```
-
-실행:
-
-```bash
-python scripts/run_poc.py --workflow config/workflows/my_custom_workflow.yaml
-```
+| Document | Description |
+|----------|-------------|
+| [Evolution Engine](./docs/EVOLUTION-ENGINE.md) | Deep-dive into the self-evolution system |
+| [API Reference](./docs/API-REFERENCE.md) | REST API endpoints, models, and curl examples |
+| [Testing Guide](./docs/TESTING-GUIDE.md) | Test categories, commands, and writing tests |
+| [Evolution UI](./evolution-ui/README.md) | React dashboard setup and pages |
+| [Architecture](./docs/ARCHITECTURE.md) | Module-level architecture details |
+| [PRD](./docs/PRD.md) | Product requirements document |
+| [Technical Spec](./docs/web-automation-technical-spec-v2.md) | Full technical specification (2,268 lines) |
 
 ---
 
-## 커스텀 규칙 추가
+## Environment Variables
 
-`config/rules/` 에 YAML 파일로 규칙을 추가합니다:
-
-```yaml
-# config/rules/my_site_rules.yaml
-rules:
-  - name: "my_site_close_popup"
-    category: "popup"
-    trigger:
-      intent: "팝업 닫기"
-      site_pattern: "*.example.com"
-    selector: ".modal-close-btn"
-    method: "click"
-    priority: 10
-
-  - name: "my_site_search"
-    category: "search"
-    trigger:
-      intent: "검색"
-      site_pattern: "*.example.com"
-    selector: "#search-input"
-    method: "type"
-    priority: 5
-```
-
-엔진이 시작될 때 `config/rules/*.yaml` 를 자동으로 로드합니다.
-
-동의어도 `config/synonyms.yaml`에 추가할 수 있습니다:
-
-```yaml
-# 기존 그룹에 추가하거나 새 그룹 생성
-my_actions:
-  장바구니: ["cart", "add to cart", "담기", "장바구니 담기"]
-  구매: ["buy", "purchase", "구입", "주문"]
-```
-
----
-
-## 메모리 시스템
-
-4계층 메모리가 학습과 최적화를 지원합니다:
-
-| 계층 | 저장소 | 수명 | 용도 |
-|------|--------|------|------|
-| **Working** | 메모리 (dict) | 1 스텝 | 현재 스텝 컨텍스트 |
-| **Episode** | JSON 파일 | 1 태스크 | 태스크 실행 기록 |
-| **Policy** | SQLite DB | 영구 | 성공 패턴, 규칙 |
-| **Artifact** | 파일시스템 | TTL 기반 | 스크린샷, 추출 데이터 |
-
-데이터 위치:
-- Episode: `data/episodes/{task_id}.json`
-- Policy: `data/patterns.db`
-- Artifact: `data/artifacts/`
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `GEMINI_API_KEY` or `GOOGLE_API_KEY` | Yes | — | Google Gemini API key |
+| `GEMINI_FLASH_MODEL` | No | `gemini-3-flash-preview` | Tier-1 model (automation, fast/cheap) |
+| `GEMINI_PRO_MODEL` | No | `gemini-3.1-pro-preview` | Tier-2 model (coding, escalation) |
+| `YOLO_MODEL` | No | `yolo26l.pt` | YOLO model weights file |
+| `VITE_API_PORT` | No | `8000` | API port for UI proxy |
 
 ---
 

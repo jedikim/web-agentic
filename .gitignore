@@ -17,6 +17,7 @@ python-authoring-service/data/
 
 # Git worktrees
 .worktrees/
+.claude/worktrees/
 
 # Authoring UI
 authoring-ui/node_modules/
@@ -26,3 +27,19 @@ authoring-ui/node_modules/
 
 # Temporary screenshots
 *.png
+
+# Scenario testing artifacts
+testing/
+
+# Evolution UI
+evolution-ui/node_modules/
+evolution-ui/dist/
+
+# Runtime data
+data/*.db
+
+# Egg-info
+*.egg-info/
+
+# JPEG screenshots
+*.jpeg

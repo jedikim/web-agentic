@@ -23,6 +23,8 @@ from src.core.executor import Executor
 if TYPE_CHECKING:
     from playwright.async_api import Browser, Playwright
 
+    from src.core.config import StealthConfig
+
 logger = logging.getLogger(__name__)
 
 
@@ -40,18 +42,29 @@ class ExecutorPool:
         _active: Number of currently acquired executors.
     """
 
-    def __init__(self, pw: Playwright, browser: Browser) -> None:
+    def __init__(
+        self,
+        pw: Playwright,
+        browser: Browser,
+        stealth: StealthConfig | None = None,
+    ) -> None:
         self._pw = pw
         self._browser = browser
+        self._stealth = stealth
         self._active: int = 0
         self._closed: bool = False
 
     @classmethod
-    async def create(cls, headless: bool = True) -> ExecutorPool:
+    async def create(
+        cls,
+        headless: bool = True,
+        stealth: StealthConfig | None = None,
+    ) -> ExecutorPool:
         """Create a new ExecutorPool with a launched browser.
 
         Args:
             headless: Whether to run browser in headless mode.
+            stealth: Optional stealth configuration for anti-detection.
 
         Returns:
             A ready-to-use ExecutorPool.
@@ -59,7 +72,7 @@ class ExecutorPool:
         pw = await async_playwright().start()
         browser = await pw.chromium.launch(headless=headless)
         logger.info("ExecutorPool created (headless=%s)", headless)
-        return cls(pw=pw, browser=browser)
+        return cls(pw=pw, browser=browser, stealth=stealth)
 
     async def acquire(self) -> Executor:
         """Acquire a new Executor with a fresh BrowserContext and Page.
@@ -76,7 +89,11 @@ class ExecutorPool:
         if self._closed:
             raise RuntimeError("Cannot acquire from a closed pool")
 
-        context = await self._browser.new_context()
+        if self._stealth is not None and self._stealth.enabled:
+            from src.core.stealth import create_stealth_context
+            context = await create_stealth_context(self._browser, self._stealth)
+        else:
+            context = await self._browser.new_context()
         page = await context.new_page()
         # Pass browser=None so Executor.close() won't kill the shared browser
         executor = Executor(page=page, browser=None, context=context)

@@ -25,6 +25,8 @@ class FailureCode(str, Enum):
     CAPTCHA_DETECTED = "CaptchaDetected"
     AUTH_REQUIRED = "AuthRequired"
     DYNAMIC_LAYOUT = "DynamicLayout"
+    NAVIGATION_BLOCKED = "NavigationBlocked"
+    BOT_DETECTED = "BotDetected"
 
 
 # ── Exceptions ───────────────────────────────────────
@@ -67,6 +69,16 @@ class CaptchaDetectedError(AutomationError):
 class AuthRequiredError(AutomationError):
     """Authentication (login/2FA) required."""
     failure_code = FailureCode.AUTH_REQUIRED
+
+
+class NavigationBlockedError(AutomationError):
+    """Navigation blocked by robots.txt or rate limit."""
+    failure_code = FailureCode.NAVIGATION_BLOCKED
+
+
+class BotDetectedError(AutomationError):
+    """Bot detection triggered (Cloudflare, Akamai, etc.)."""
+    failure_code = FailureCode.BOT_DETECTED
 
 
 class BudgetExceededError(AutomationError):

@@ -1,0 +1,109 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Outfit", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  --color-void: #07080a;
+  --color-slab: #0d0f13;
+  --color-plate: #141820;
+  --color-edge: #1e2430;
+  --color-muted: #4a5568;
+  --color-dim: #8892a4;
+  --color-soft: #cbd5e1;
+  --color-text: #e8edf5;
+
+  --color-cyan: #06d6a0;
+  --color-cyan-dim: #06d6a033;
+  --color-amber: #f59e0b;
+  --color-amber-dim: #f59e0b33;
+  --color-rose: #f43f5e;
+  --color-rose-dim: #f43f5e33;
+  --color-blue: #3b82f6;
+  --color-blue-dim: #3b82f633;
+}
+
+body {
+  font-family: var(--font-display);
+  background: var(--color-void);
+  color: var(--color-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-edge);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-muted);
+}
+
+/* Grid background */
+.bg-grid {
+  background-image:
+    linear-gradient(var(--color-edge) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-edge) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+/* Glow pulse */
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+.animate-glow {
+  animation: glow-pulse 2s ease-in-out infinite;
+}
+
+/* Typing cursor */
+@keyframes blink-cursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.cursor-blink::after {
+  content: "\25AE";
+  animation: blink-cursor 1s step-end infinite;
+  color: var(--color-cyan);
+  margin-left: 2px;
+}
+
+/* Fade-in slide */
+@keyframes fade-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-fade-in {
+  animation: fade-slide-up 0.3s ease-out forwards;
+}
+
+/* Scan line */
+@keyframes scanline {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+.scanline::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--color-cyan-dim), transparent);
+  animation: scanline 8s linear infinite;
+  pointer-events: none;
+  z-index: 50;
+}
