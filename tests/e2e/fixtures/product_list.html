@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>Product List Test</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        .product-card {
+            border: 1px solid #ddd; padding: 16px; margin: 8px 0;
+            border-radius: 8px; display: flex; flex-direction: column; gap: 8px;
+        }
+        .product-card [itemprop="name"] { font-weight: bold; font-size: 1.1em; }
+        .product-card [itemprop="price"] { color: #e74c3c; font-size: 1.2em; }
+        .product-card a { color: #3498db; }
+    </style>
+</head>
+<body>
+    <h1>Product List Test</h1>
+
+    <div class="product-card" itemscope itemtype="https://schema.org/Product">
+        <span itemprop="name">무선 이어폰</span>
+        <span itemprop="price">29,000원</span>
+        <a itemprop="url" href="/product/1">자세히 보기</a>
+    </div>
+
+    <div class="product-card" itemscope itemtype="https://schema.org/Product">
+        <span itemprop="name">USB 충전기</span>
+        <span itemprop="price">12,000원</span>
+        <a itemprop="url" href="/product/2">자세히 보기</a>
+    </div>
+
+    <div class="product-card" itemscope itemtype="https://schema.org/Product">
+        <span itemprop="name">보조배터리</span>
+        <span itemprop="price">35,000원</span>
+        <a itemprop="url" href="/product/3">자세히 보기</a>
+    </div>
+</body>
+</html>

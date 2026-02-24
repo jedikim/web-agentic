@@ -32,14 +32,20 @@ from src.core.types import (
     ClickOptions,
     ExtractedElement,
     FailureCode,
+    ICoordMapper,
     IExecutor,
     IExtractor,
     IFallbackRouter,
     ILLMPlanner,
     IMemoryManager,
+    IProgressCallback,
     IRuleEngine,
     IVerifier,
+    IVLMClient,
+    IYOLODetector,
     PageState,
+    ProgressEvent,
+    ProgressInfo,
     RecoveryPlan,
     RuleMatch,
     SelectorNotFoundError,
@@ -57,8 +63,8 @@ class Orchestrator:
     """Main orchestration loop tying all core modules together.
 
     Consumes a list of ``StepDefinition`` objects and executes them
-    through the escalation pipeline: R -> E+R -> F -> L, with V(verify)
-    after every action.
+    through the escalation pipeline: R -> E+R -> F -> L -> Vision,
+    with V(verify) after every action.
 
     Args:
         executor: Browser automation module (X).
@@ -68,6 +74,12 @@ class Orchestrator:
         fallback_router: Failure classification and routing module (F). Optional.
         planner: LLM-based planning module (L). Optional.
         memory: 4-layer memory manager. Optional.
+        yolo_detector: YOLO local detection module (G1). Optional.
+        vlm_client: VLM API client module (G1). Optional.
+        coord_mapper: Coordinate reverse mapping module (G1). Optional.
+        pattern_db: Pattern database for learning (G2). Optional.
+        rule_promoter: Rule promotion engine for learning (G2). Optional.
+        progress_callback: Progress event callback (G5). Optional.
 
     Example::
 
@@ -89,6 +101,12 @@ class Orchestrator:
         fallback_router: IFallbackRouter | None = None,
         planner: ILLMPlanner | None = None,
         memory: IMemoryManager | None = None,
+        yolo_detector: IYOLODetector | None = None,
+        vlm_client: IVLMClient | None = None,
+        coord_mapper: ICoordMapper | None = None,
+        pattern_db: Any = None,
+        rule_promoter: Any = None,
+        progress_callback: IProgressCallback | None = None,
     ) -> None:
         self._executor = executor
         self._extractor = extractor
@@ -97,13 +115,32 @@ class Orchestrator:
         self._fallback_router = fallback_router
         self._planner = planner
         self._memory = memory
+        self._yolo_detector = yolo_detector
+        self._vlm_client = vlm_client
+        self._coord_mapper = coord_mapper
+        self._pattern_db = pattern_db
+        self._rule_promoter = rule_promoter
+        self._progress_callback = progress_callback
+        self._step_counter = 0
+
+    def _emit(self, event: ProgressEvent, **kwargs: Any) -> None:
+        """Emit a progress event if a callback is registered.
+
+        Args:
+            event: The progress event type.
+            **kwargs: Additional keyword arguments for ``ProgressInfo``.
+        """
+        if self._progress_callback is not None:
+            info = ProgressInfo(event=event, **kwargs)
+            self._progress_callback.on_progress(info)
 
     async def run(self, steps: list[StepDefinition]) -> list[StepResult]:
         """Execute a list of steps through the orchestration pipeline.
 
         Populates a ``StepQueue``, processes each step via ``execute_step``,
         and collects results.  Completed and failed steps are tracked in the
-        queue for observability.
+        queue for observability.  After each step, the learning loop records
+        the result and periodically checks for rule promotion (G2).
 
         Args:
             steps: Ordered list of step definitions to execute.
@@ -115,10 +152,20 @@ class Orchestrator:
         queue.push_many(steps)
         results: list[StepResult] = []
 
+        self._emit(ProgressEvent.RUN_STARTED, total_steps=len(steps))
+
+        idx = 0
         while not queue.is_empty():
             step = queue.pop()
             if step is None:
                 break  # pragma: no cover — defensive
+
+            self._emit(
+                ProgressEvent.STEP_STARTED,
+                step_id=step.step_id,
+                step_index=idx,
+                total_steps=len(steps),
+            )
 
             logger.info("Executing step '%s': %s", step.step_id, step.intent)
             result = await self.execute_step(step)
@@ -126,9 +173,41 @@ class Orchestrator:
 
             if result.success:
                 queue.mark_completed(step)
+                self._emit(
+                    ProgressEvent.STEP_COMPLETED,
+                    step_id=step.step_id,
+                    result=result,
+                )
             else:
                 queue.mark_failed(step)
+                self._emit(
+                    ProgressEvent.STEP_FAILED,
+                    step_id=step.step_id,
+                    result=result,
+                )
 
+            # Learning loop (G2)
+            if self._rule_promoter is not None:
+                try:
+                    selector = step.selector or step.step_id
+                    await self._rule_promoter.record_step_result(
+                        result, step.intent, "*", selector, result.method
+                    )
+                except Exception as exc:
+                    logger.debug("Learning record failed: %s", exc)
+
+            self._step_counter += 1
+            if self._rule_promoter is not None and self._step_counter % 5 == 0:
+                try:
+                    promoted = await self._rule_promoter.check_and_promote()
+                    if promoted:
+                        logger.info("Promoted %d patterns to rules", len(promoted))
+                except Exception as exc:
+                    logger.debug("Rule promotion failed: %s", exc)
+
+            idx += 1
+
+        self._emit(ProgressEvent.RUN_COMPLETED, total_steps=len(steps))
         return results
 
     async def execute_step(self, step: StepDefinition) -> StepResult:
@@ -284,11 +363,34 @@ class Orchestrator:
                         last_failure_code = getattr(exc, "failure_code", None)
 
                 if recovery.strategy == "escalate_vision":
-                    # Placeholder for Phase 3 vision module
-                    logger.debug(
-                        "Step '%s': vision escalation not yet implemented",
-                        step.step_id,
+                    self._emit(
+                        ProgressEvent.LEVEL_CHANGED,
+                        step_id=step.step_id,
+                        method="VISION",
+                        attempt=attempt,
                     )
+                    try:
+                        vision_result = await self._escalate_vision(step, page)
+                        if vision_result is not None:
+                            success, tokens, cost = vision_result
+                            total_tokens += tokens
+                            total_cost += cost
+                            if success:
+                                method_used = "YOLO" if tokens == 0 else "VLM"
+                                elapsed_ms = (time.perf_counter() - start_time) * 1000
+                                return StepResult(
+                                    step_id=step.step_id,
+                                    success=True,
+                                    method=method_used,
+                                    tokens_used=total_tokens,
+                                    latency_ms=elapsed_ms,
+                                    cost_usd=total_cost,
+                                )
+                    except AutomationError as exc:
+                        logger.debug(
+                            "Step '%s': vision path error: %s", step.step_id, exc
+                        )
+                        last_failure_code = getattr(exc, "failure_code", None)
 
                 if recovery.strategy == "retry":
                     # Just continue to the next attempt
@@ -449,6 +551,142 @@ class Orchestrator:
             recovery.strategy,
         )
         return recovery
+
+    async def _escalate_vision(
+        self, step: StepDefinition, page: Any
+    ) -> tuple[bool, int, float] | None:
+        """Attempt vision-based element detection (G1).
+
+        First tries YOLO (token cost=0), then falls back to VLM if YOLO fails.
+
+        Args:
+            step: Current step definition.
+            page: Playwright Page instance.
+
+        Returns:
+            Tuple of (success, tokens_used, cost_usd), or ``None`` if
+            no vision modules are available or all attempts fail.
+        """
+        if self._yolo_detector is None and self._vlm_client is None:
+            logger.debug("Step '%s': no vision modules available", step.step_id)
+            return None
+
+        screenshot = await self._executor.screenshot()
+
+        # Try YOLO first (free, local)
+        if self._yolo_detector is not None:
+            try:
+                elements = await self._yolo_detector.detect_elements(screenshot)
+                if elements:
+                    # Use coord_mapper to find closest match, or just use first
+                    target = elements[0]
+                    if self._coord_mapper is not None:
+                        # Get DOM candidates for correlation
+                        page_obj = await self._executor.get_page()
+                        clickables = await self._extractor.extract_clickables(page_obj)
+                        inputs = await self._extractor.extract_inputs(page_obj)
+                        dom_candidates = clickables + inputs
+                        if dom_candidates:
+                            cx = target.bbox[0] + target.bbox[2] // 2
+                            cy = target.bbox[1] + target.bbox[3] // 2
+                            mapped = self._coord_mapper.find_closest_element(
+                                (cx, cy), dom_candidates
+                            )
+                            if mapped is not None:
+                                target = mapped
+
+                    await self._execute_action(target.eid, "click", step)
+                    verify_result = await self._verify_step(step, page)
+                    if verify_result.success:
+                        return (True, 0, 0.0)  # YOLO = 0 tokens
+            except Exception as exc:
+                logger.debug("Step '%s': YOLO detection failed: %s", step.step_id, exc)
+
+        # Fall back to VLM (costs tokens)
+        if self._vlm_client is not None:
+            try:
+                page_obj = await self._executor.get_page()
+                clickables = await self._extractor.extract_clickables(page_obj)
+                inputs = await self._extractor.extract_inputs(page_obj)
+                candidates = clickables + inputs
+
+                patch = await self._vlm_client.select_element(
+                    screenshot, candidates, step.intent
+                )
+                selector = patch.data.get("selected_eid", patch.target)
+                await self._execute_action(selector, "click", step)
+                verify_result = await self._verify_step(step, page)
+
+                tokens = patch.data.get("tokens_used", 200)
+                cost = patch.data.get("cost_usd", 0.002)
+                return (verify_result.success, tokens, cost)
+            except Exception as exc:
+                logger.debug("Step '%s': VLM selection failed: %s", step.step_id, exc)
+
+        return None
+
+    # ── Single-step public API (G8) ──────────────────────────
+
+    async def execute_one(self, step: StepDefinition) -> StepResult:
+        """Execute a single step with learning and callbacks.
+
+        Convenience wrapper around ``execute_step`` that includes
+        the learning loop and progress callbacks.
+
+        Args:
+            step: The step definition to execute.
+
+        Returns:
+            ``StepResult`` for the executed step.
+        """
+        self._emit(ProgressEvent.RUN_STARTED, total_steps=1)
+        result = await self.execute_step(step)
+
+        # Learning loop
+        if self._rule_promoter is not None:
+            try:
+                selector = step.selector or step.step_id
+                await self._rule_promoter.record_step_result(
+                    result, step.intent, "*", selector, result.method
+                )
+            except Exception:
+                pass
+
+        if result.success:
+            self._emit(
+                ProgressEvent.STEP_COMPLETED, step_id=step.step_id, result=result
+            )
+        else:
+            self._emit(
+                ProgressEvent.STEP_FAILED, step_id=step.step_id, result=result
+            )
+
+        self._emit(ProgressEvent.RUN_COMPLETED, total_steps=1)
+        return result
+
+    async def run_intent(
+        self,
+        intent: str,
+        selector: str | None = None,
+        arguments: list[str] | None = None,
+    ) -> StepResult:
+        """One-liner API: execute a single intent.
+
+        Args:
+            intent: Action intent (e.g., "click search button").
+            selector: Optional CSS selector.
+            arguments: Optional action arguments.
+
+        Returns:
+            ``StepResult`` for the executed intent.
+        """
+        step = StepDefinition(
+            step_id="inline_1",
+            intent=intent,
+            selector=selector,
+            arguments=arguments or [],
+        )
+        return await self.execute_one(step)
 
     # ── Execution helpers ────────────────────────────────────
 

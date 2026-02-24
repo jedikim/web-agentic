@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>Search Form Test</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        #search-input { padding: 8px; width: 300px; }
+        #search-btn { padding: 8px 16px; cursor: pointer; }
+        .result-item { padding: 8px; margin: 4px 0; background: #f5f5f5; border-radius: 4px; }
+        #results { margin-top: 16px; }
+    </style>
+</head>
+<body>
+    <h1>Search Form Test</h1>
+
+    <form onsubmit="doSearch(); return false;">
+        <input id="search-input" type="text" placeholder="검색어를 입력하세요" />
+        <button id="search-btn" type="button" onclick="doSearch()">검색</button>
+    </form>
+
+    <p>Result count: <span id="result-count">0</span></p>
+    <div id="results"></div>
+
+    <script>
+        function doSearch() {
+            var query = document.getElementById('search-input').value;
+            if (!query) return;
+            var results = document.getElementById('results');
+            var item = document.createElement('div');
+            item.className = 'result-item';
+            item.textContent = '검색 결과: ' + query;
+            results.appendChild(item);
+            var count = results.querySelectorAll('.result-item').length;
+            document.getElementById('result-count').textContent = count;
+        }
+    </script>
+</body>
+</html>

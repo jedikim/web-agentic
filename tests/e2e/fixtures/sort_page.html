@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>Sort Page Test</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        .sort-bar { display: flex; gap: 4px; margin: 16px 0; }
+        .sort-tab {
+            padding: 8px 16px; cursor: pointer; border: 1px solid #ccc;
+            background: #f5f5f5; border-radius: 4px;
+        }
+        .sort-tab.active { background: #3498db; color: #fff; border-color: #3498db; }
+        #sort-result { padding: 16px; background: #f5f5f5; margin-top: 16px; border-radius: 8px; }
+    </style>
+</head>
+<body>
+    <h1>Sort Page Test</h1>
+
+    <div class="sort-bar">
+        <button class="sort-tab active" data-sort="popular" onclick="sortBy(this)">인기순</button>
+        <button class="sort-tab" data-sort="newest" onclick="sortBy(this)">최신순</button>
+        <button class="sort-tab" data-sort="price" onclick="sortBy(this)">가격순</button>
+    </div>
+
+    <div id="sort-result">Sorted by: popular</div>
+
+    <script>
+        function sortBy(el) {
+            document.querySelectorAll('.sort-tab').forEach(function(tab) {
+                tab.classList.remove('active');
+            });
+            el.classList.add('active');
+            document.getElementById('sort-result').textContent = 'Sorted by: ' + el.dataset.sort;
+        }
+    </script>
+</body>
+</html>

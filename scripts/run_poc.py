@@ -29,6 +29,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_PROJECT_ROOT))
 
 from src.core.executor import Executor, create_executor  # noqa: E402
+from src.core.executor_pool import ExecutorPool  # noqa: E402
 from src.core.extractor import DOMExtractor  # noqa: E402
 from src.core.fallback_router import FallbackRouter, create_fallback_router  # noqa: E402
 from src.core.orchestrator import Orchestrator  # noqa: E402
@@ -36,6 +37,8 @@ from src.core.rule_engine import RuleEngine  # noqa: E402
 from src.core.types import StepResult  # noqa: E402
 from src.core.verifier import Verifier  # noqa: E402
 from src.learning.memory_manager import MemoryManager, create_memory_manager  # noqa: E402
+from src.learning.pattern_db import PatternDB  # noqa: E402
+from src.learning.rule_promoter import RulePromoter  # noqa: E402
 from src.workflow.dsl_parser import parse_workflow  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -46,18 +49,22 @@ _DEFAULT_WORKFLOW = _PROJECT_ROOT / "config" / "workflows" / "naver_shopping.yam
 
 async def create_engine(
     headless: bool = True,
+    executor: Executor | None = None,
 ) -> tuple[Orchestrator, Executor, MemoryManager]:
     """Create and wire all engine modules.
 
     Args:
         headless: Whether to run the browser in headless mode.
+        executor: Optional pre-created Executor (e.g. from an ExecutorPool).
+            If None, a new browser+executor is created.
 
     Returns:
         Tuple of (orchestrator, executor, memory_manager).
         Caller is responsible for calling ``executor.close()`` when done.
     """
     # Core modules (token cost = 0).
-    executor = await create_executor(headless=headless)
+    if executor is None:
+        executor = await create_executor(headless=headless)
     extractor = DOMExtractor()
     rule_engine = RuleEngine()
     verifier = Verifier()
@@ -79,6 +86,28 @@ async def create_engine(
     data_dir = _PROJECT_ROOT / "data"
     memory = await create_memory_manager(str(data_dir))
 
+    # Learning modules (G2).
+    pattern_db = PatternDB(data_dir / "patterns.db")
+    await pattern_db.init_db()
+    rule_promoter = RulePromoter(pattern_db, rule_engine)
+
+    # Optional vision modules (G1).
+    yolo_detector = None
+    vlm_client = None
+    coord_mapper = None
+    if os.environ.get("ENABLE_VISION"):
+        try:
+            from src.vision.yolo_detector import create_yolo_detector
+            from src.vision.vlm_client import create_vlm_client
+            from src.vision.coord_mapper import CoordMapper
+
+            yolo_detector = create_yolo_detector()
+            vlm_client = create_vlm_client()
+            coord_mapper = CoordMapper()
+            logger.info("Vision modules enabled")
+        except Exception as exc:
+            logger.warning("Failed to create vision modules: %s", exc)
+
     # Wire into orchestrator.
     orchestrator = Orchestrator(
         executor=executor,
@@ -88,6 +117,11 @@ async def create_engine(
         fallback_router=fallback_router,
         planner=planner,
         memory=memory,
+        pattern_db=pattern_db,
+        rule_promoter=rule_promoter,
+        yolo_detector=yolo_detector,
+        vlm_client=vlm_client,
+        coord_mapper=coord_mapper,
     )
 
     return orchestrator, executor, memory
@@ -130,53 +164,73 @@ async def run_poc(
 
     all_results: list[dict] = []
 
-    for i in range(iterations):
-        logger.info("=== Iteration %d/%d ===", i + 1, iterations)
-        start_time = time.time()
+    # Use ExecutorPool for multi-iteration runs (reuse browser, new context per iter).
+    pool: ExecutorPool | None = None
+    if iterations > 1:
+        pool = await ExecutorPool.create(headless=headless)
+        logger.info("ExecutorPool created for %d iterations", iterations)
 
-        orchestrator, executor, memory = await create_engine(headless)
-        try:
-            results = await orchestrator.run(steps)
+    try:
+        for i in range(iterations):
+            logger.info("=== Iteration %d/%d ===", i + 1, iterations)
+            start_time = time.time()
 
-            total_tokens = sum(r.tokens_used for r in results)
-            total_cost = sum(r.cost_usd for r in results)
-            total_latency = sum(r.latency_ms for r in results)
-            success_count = sum(1 for r in results if r.success)
-            success_rate = success_count / len(results) if results else 0.0
+            # Acquire executor from pool or create standalone.
+            if pool is not None:
+                executor = await pool.acquire()
+                orchestrator, executor, memory = await create_engine(headless, executor=executor)
+            else:
+                orchestrator, executor, memory = await create_engine(headless)
 
-            iteration_result = {
-                "iteration": i + 1,
-                "results": [_step_result_to_dict(r) for r in results],
-                "total_steps": len(results),
-                "successful_steps": success_count,
-                "failed_steps": len(results) - success_count,
-                "total_tokens": total_tokens,
-                "total_cost_usd": total_cost,
-                "total_latency_ms": total_latency,
-                "wall_time_s": time.time() - start_time,
-                "success_rate": success_rate,
-                "methods_used": _count_methods(results),
-            }
+            try:
+                results = await orchestrator.run(steps)
 
-            all_results.append(iteration_result)
-            logger.info(
-                "Iteration %d: success_rate=%.1f%% tokens=%d cost=$%.4f latency=%.0fms",
-                i + 1,
-                success_rate * 100,
-                total_tokens,
-                total_cost,
-                total_latency,
-            )
+                total_tokens = sum(r.tokens_used for r in results)
+                total_cost = sum(r.cost_usd for r in results)
+                total_latency = sum(r.latency_ms for r in results)
+                success_count = sum(1 for r in results if r.success)
+                success_rate = success_count / len(results) if results else 0.0
 
-        except Exception as exc:
-            logger.error("Iteration %d failed: %s", i + 1, exc, exc_info=True)
-            all_results.append({
-                "iteration": i + 1,
-                "error": str(exc),
-                "wall_time_s": time.time() - start_time,
-            })
-        finally:
-            await executor.close()
+                iteration_result = {
+                    "iteration": i + 1,
+                    "results": [_step_result_to_dict(r) for r in results],
+                    "total_steps": len(results),
+                    "successful_steps": success_count,
+                    "failed_steps": len(results) - success_count,
+                    "total_tokens": total_tokens,
+                    "total_cost_usd": total_cost,
+                    "total_latency_ms": total_latency,
+                    "wall_time_s": time.time() - start_time,
+                    "success_rate": success_rate,
+                    "methods_used": _count_methods(results),
+                }
+
+                all_results.append(iteration_result)
+                logger.info(
+                    "Iteration %d: success_rate=%.1f%% tokens=%d cost=$%.4f latency=%.0fms",
+                    i + 1,
+                    success_rate * 100,
+                    total_tokens,
+                    total_cost,
+                    total_latency,
+                )
+
+            except Exception as exc:
+                logger.error("Iteration %d failed: %s", i + 1, exc, exc_info=True)
+                all_results.append({
+                    "iteration": i + 1,
+                    "error": str(exc),
+                    "wall_time_s": time.time() - start_time,
+                })
+            finally:
+                if pool is not None:
+                    await pool.release(executor)
+                else:
+                    await executor.close()
+    finally:
+        if pool is not None:
+            await pool.close()
+            logger.info("ExecutorPool closed")
 
     return all_results
 

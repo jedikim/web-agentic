@@ -26,6 +26,8 @@ from src.core.types import (
     FailureCode,
     PageState,
     PatchData,
+    ProgressEvent,
+    ProgressInfo,
     RecoveryPlan,
     RuleMatch,
     SelectorNotFoundError,
@@ -722,12 +724,12 @@ async def test_method_L1_on_heuristic_path(
 # ── 12. Vision escalation placeholder ────────────────
 
 
-async def test_vision_escalation_placeholder(
+async def test_vision_escalation_no_modules(
     orchestrator_full: Orchestrator,
     mock_rule_engine: MagicMock,
     mock_fallback_router: MagicMock,
 ) -> None:
-    """escalate_vision strategy does not crash (placeholder)."""
+    """escalate_vision with no vision modules returns failure safely."""
     mock_rule_engine.match.return_value = None
     mock_rule_engine.heuristic_select.return_value = None
 
@@ -739,4 +741,508 @@ async def test_vision_escalation_placeholder(
     result = await orchestrator_full.execute_step(step)
 
     # Should exhaust attempts without crashing
+    assert result.success is False
+
+
+# ── 13. Vision escalation (G1) ──────────────────────
+
+
+def _make_orchestrator_with_vision(
+    mock_executor: AsyncMock,
+    mock_extractor: AsyncMock,
+    mock_rule_engine: MagicMock,
+    mock_verifier: AsyncMock,
+    mock_fallback_router: MagicMock,
+    yolo_detector: AsyncMock | None = None,
+    vlm_client: AsyncMock | None = None,
+    coord_mapper: MagicMock | None = None,
+) -> Orchestrator:
+    """Helper to create an orchestrator with vision modules."""
+    return Orchestrator(
+        executor=mock_executor,
+        extractor=mock_extractor,
+        rule_engine=mock_rule_engine,
+        verifier=mock_verifier,
+        fallback_router=mock_fallback_router,
+        yolo_detector=yolo_detector,
+        vlm_client=vlm_client,
+        coord_mapper=coord_mapper,
+    )
+
+
+async def test_vision_yolo_success(
+    mock_executor: AsyncMock,
+    mock_extractor: AsyncMock,
+    mock_rule_engine: MagicMock,
+    mock_verifier: AsyncMock,
+    mock_fallback_router: MagicMock,
+) -> None:
+    """YOLO detects element, verify passes -> method='YOLO', tokens=0."""
+    mock_rule_engine.match.return_value = None
+    mock_rule_engine.heuristic_select.return_value = None
+
+    mock_fallback_router.route.return_value = RecoveryPlan(
+        strategy="escalate_vision", tier=2
+    )
+
+    mock_executor.screenshot = AsyncMock(return_value=b"fake_screenshot")
+    mock_verifier.verify.return_value = VerifyResult(success=True, message="OK")
+
+    yolo = AsyncMock()
+    yolo.detect_elements = AsyncMock(
+        return_value=[
+            ExtractedElement(
+                eid="yolo-0-button", type="button", text="button",
+                bbox=(10, 20, 100, 50), visible=True,
+            )
+        ]
+    )
+
+    orch = _make_orchestrator_with_vision(
+        mock_executor, mock_extractor, mock_rule_engine,
+        mock_verifier, mock_fallback_router, yolo_detector=yolo,
+    )
+
+    step = _make_step(
+        max_attempts=2,
+        verify_condition=VerifyCondition(type="element_visible", value="#result"),
+    )
+    result = await orch.execute_step(step)
+
+    assert result.success is True
+    assert result.method == "YOLO"
+    assert result.tokens_used == 0
+
+
+async def test_vision_vlm_fallback(
+    mock_executor: AsyncMock,
+    mock_extractor: AsyncMock,
+    mock_rule_engine: MagicMock,
+    mock_verifier: AsyncMock,
+    mock_fallback_router: MagicMock,
+) -> None:
+    """YOLO is None, VLM succeeds -> method='VLM'."""
+    mock_rule_engine.match.return_value = None
+    mock_rule_engine.heuristic_select.return_value = None
+
+    mock_fallback_router.route.return_value = RecoveryPlan(
+        strategy="escalate_vision", tier=2
+    )
+
+    mock_executor.screenshot = AsyncMock(return_value=b"fake_screenshot")
+    mock_verifier.verify.return_value = VerifyResult(success=True, message="OK")
+
+    candidate = ExtractedElement(
+        eid="#btn-vlm", type="button", text="Click me", visible=True
+    )
+    mock_extractor.extract_clickables.return_value = [candidate]
+
+    vlm = AsyncMock()
+    vlm.select_element = AsyncMock(
+        return_value=PatchData(
+            patch_type="selector_fix",
+            target="#btn-vlm",
+            data={"selected_eid": "#btn-vlm", "tokens_used": 200, "cost_usd": 0.002},
+            confidence=0.9,
+        )
+    )
+
+    orch = _make_orchestrator_with_vision(
+        mock_executor, mock_extractor, mock_rule_engine,
+        mock_verifier, mock_fallback_router, vlm_client=vlm,
+    )
+
+    step = _make_step(
+        max_attempts=2,
+        verify_condition=VerifyCondition(type="element_visible", value="#result"),
+    )
+    result = await orch.execute_step(step)
+
+    assert result.success is True
+    assert result.method == "VLM"
+    assert result.tokens_used >= 200
+
+
+async def test_vision_no_modules(
+    mock_executor: AsyncMock,
+    mock_extractor: AsyncMock,
+    mock_rule_engine: MagicMock,
+    mock_verifier: AsyncMock,
+    mock_fallback_router: MagicMock,
+) -> None:
+    """No vision modules -> returns None safely."""
+    mock_rule_engine.match.return_value = None
+    mock_rule_engine.heuristic_select.return_value = None
+
+    mock_fallback_router.route.return_value = RecoveryPlan(
+        strategy="escalate_vision", tier=2
+    )
+
+    orch = _make_orchestrator_with_vision(
+        mock_executor, mock_extractor, mock_rule_engine,
+        mock_verifier, mock_fallback_router,
+    )
+
+    step = _make_step(max_attempts=1)
+    result = await orch.execute_step(step)
+
+    assert result.success is False
+
+
+async def test_vision_yolo_fail_vlm_success(
+    mock_executor: AsyncMock,
+    mock_extractor: AsyncMock,
+    mock_rule_engine: MagicMock,
+    mock_verifier: AsyncMock,
+    mock_fallback_router: MagicMock,
+) -> None:
+    """YOLO raises exception, VLM succeeds."""
+    mock_rule_engine.match.return_value = None
+    mock_rule_engine.heuristic_select.return_value = None
+
+    mock_fallback_router.route.return_value = RecoveryPlan(
+        strategy="escalate_vision", tier=2
+    )
+
+    mock_executor.screenshot = AsyncMock(return_value=b"fake_screenshot")
+    mock_verifier.verify.return_value = VerifyResult(success=True, message="OK")
+
+    candidate = ExtractedElement(
+        eid="#btn-vlm", type="button", text="Click me", visible=True
+    )
+    mock_extractor.extract_clickables.return_value = [candidate]
+
+    yolo = AsyncMock()
+    yolo.detect_elements = AsyncMock(side_effect=RuntimeError("YOLO model error"))
+
+    vlm = AsyncMock()
+    vlm.select_element = AsyncMock(
+        return_value=PatchData(
+            patch_type="selector_fix",
+            target="#btn-vlm",
+            data={"selected_eid": "#btn-vlm", "tokens_used": 200, "cost_usd": 0.002},
+            confidence=0.9,
+        )
+    )
+
+    orch = _make_orchestrator_with_vision(
+        mock_executor, mock_extractor, mock_rule_engine,
+        mock_verifier, mock_fallback_router,
+        yolo_detector=yolo, vlm_client=vlm,
+    )
+
+    step = _make_step(
+        max_attempts=2,
+        verify_condition=VerifyCondition(type="element_visible", value="#result"),
+    )
+    result = await orch.execute_step(step)
+
+    assert result.success is True
+    assert result.method == "VLM"
+
+
+# ── 14. Learning loop (G2) ──────────────────────────
+
+
+async def test_learning_records_success(
+    mock_executor: AsyncMock,
+    mock_extractor: AsyncMock,
+    mock_rule_engine: MagicMock,
+    mock_verifier: AsyncMock,
+) -> None:
+    """After successful step, rule_promoter.record_step_result is called."""
+    mock_rule_engine.match.return_value = RuleMatch(
+        rule_id="r1", selector="#btn", method="click"
+    )
+    mock_verifier.verify.return_value = VerifyResult(success=True, message="OK")
+
+    rule_promoter = AsyncMock()
+    rule_promoter.record_step_result = AsyncMock()
+    rule_promoter.check_and_promote = AsyncMock(return_value=[])
+
+    orch = Orchestrator(
+        executor=mock_executor,
+        extractor=mock_extractor,
+        rule_engine=mock_rule_engine,
+        verifier=mock_verifier,
+        rule_promoter=rule_promoter,
+    )
+
+    steps = [_make_step()]
+    await orch.run(steps)
+
+    rule_promoter.record_step_result.assert_awaited_once()
+    # Verify the first positional arg is a StepResult with success=True
+    call_args = rule_promoter.record_step_result.call_args
+    assert call_args[0][0].success is True
+
+
+async def test_learning_records_failure(
+    mock_executor: AsyncMock,
+    mock_extractor: AsyncMock,
+    mock_rule_engine: MagicMock,
+    mock_verifier: AsyncMock,
+) -> None:
+    """After failed step, record_step_result is called with failure."""
+    mock_rule_engine.match.return_value = None
+    mock_rule_engine.heuristic_select.return_value = None
+
+    rule_promoter = AsyncMock()
+    rule_promoter.record_step_result = AsyncMock()
+    rule_promoter.check_and_promote = AsyncMock(return_value=[])
+
+    orch = Orchestrator(
+        executor=mock_executor,
+        extractor=mock_extractor,
+        rule_engine=mock_rule_engine,
+        verifier=mock_verifier,
+        rule_promoter=rule_promoter,
+    )
+
+    steps = [_make_step(max_attempts=1)]
+    await orch.run(steps)
+
+    rule_promoter.record_step_result.assert_awaited_once()
+    call_args = rule_promoter.record_step_result.call_args
+    assert call_args[0][0].success is False
+
+
+async def test_learning_periodic_promotion(
+    mock_executor: AsyncMock,
+    mock_extractor: AsyncMock,
+    mock_rule_engine: MagicMock,
+    mock_verifier: AsyncMock,
+) -> None:
+    """After 5 steps, check_and_promote is called."""
+    mock_rule_engine.match.return_value = RuleMatch(
+        rule_id="r1", selector="#btn", method="click"
+    )
+    mock_verifier.verify.return_value = VerifyResult(success=True, message="OK")
+
+    rule_promoter = AsyncMock()
+    rule_promoter.record_step_result = AsyncMock()
+    rule_promoter.check_and_promote = AsyncMock(return_value=[])
+
+    orch = Orchestrator(
+        executor=mock_executor,
+        extractor=mock_extractor,
+        rule_engine=mock_rule_engine,
+        verifier=mock_verifier,
+        rule_promoter=rule_promoter,
+    )
+
+    steps = [_make_step(step_id=f"s{i}") for i in range(5)]
+    await orch.run(steps)
+
+    # check_and_promote should be called once (at step 5)
+    rule_promoter.check_and_promote.assert_awaited_once()
+
+
+async def test_learning_none_safe(
+    mock_executor: AsyncMock,
+    mock_extractor: AsyncMock,
+    mock_rule_engine: MagicMock,
+    mock_verifier: AsyncMock,
+) -> None:
+    """With rule_promoter=None, no errors occur."""
+    mock_rule_engine.match.return_value = RuleMatch(
+        rule_id="r1", selector="#btn", method="click"
+    )
+
+    orch = Orchestrator(
+        executor=mock_executor,
+        extractor=mock_extractor,
+        rule_engine=mock_rule_engine,
+        verifier=mock_verifier,
+        rule_promoter=None,
+    )
+
+    steps = [_make_step(step_id=f"s{i}") for i in range(6)]
+    results = await orch.run(steps)
+
+    assert len(results) == 6
+    assert all(r.success for r in results)
+
+
+# ── 15. Progress callbacks (G5) ─────────────────────
+
+
+async def test_progress_events_emitted(
+    mock_executor: AsyncMock,
+    mock_extractor: AsyncMock,
+    mock_rule_engine: MagicMock,
+    mock_verifier: AsyncMock,
+) -> None:
+    """Run 1 step, verify RUN_STARTED, STEP_STARTED, STEP_COMPLETED, RUN_COMPLETED events."""
+    mock_rule_engine.match.return_value = RuleMatch(
+        rule_id="r1", selector="#btn", method="click"
+    )
+
+    callback = MagicMock()
+    callback.on_progress = MagicMock()
+
+    orch = Orchestrator(
+        executor=mock_executor,
+        extractor=mock_extractor,
+        rule_engine=mock_rule_engine,
+        verifier=mock_verifier,
+        progress_callback=callback,
+    )
+
+    steps = [_make_step()]
+    await orch.run(steps)
+
+    # Collect all events emitted
+    events = [call[0][0].event for call in callback.on_progress.call_args_list]
+
+    assert ProgressEvent.RUN_STARTED in events
+    assert ProgressEvent.STEP_STARTED in events
+    assert ProgressEvent.STEP_COMPLETED in events
+    assert ProgressEvent.RUN_COMPLETED in events
+
+
+async def test_progress_callback_none_safe(
+    mock_executor: AsyncMock,
+    mock_extractor: AsyncMock,
+    mock_rule_engine: MagicMock,
+    mock_verifier: AsyncMock,
+) -> None:
+    """With progress_callback=None, no errors occur."""
+    mock_rule_engine.match.return_value = RuleMatch(
+        rule_id="r1", selector="#btn", method="click"
+    )
+
+    orch = Orchestrator(
+        executor=mock_executor,
+        extractor=mock_extractor,
+        rule_engine=mock_rule_engine,
+        verifier=mock_verifier,
+        progress_callback=None,
+    )
+
+    steps = [_make_step()]
+    results = await orch.run(steps)
+
+    assert len(results) == 1
+    assert results[0].success is True
+
+
+# ── 16. Single-step API (G8) ────────────────────────
+
+
+async def test_execute_one_success(
+    mock_executor: AsyncMock,
+    mock_extractor: AsyncMock,
+    mock_rule_engine: MagicMock,
+    mock_verifier: AsyncMock,
+) -> None:
+    """execute_one returns StepResult and learning is called."""
+    mock_rule_engine.match.return_value = RuleMatch(
+        rule_id="r1", selector="#btn", method="click"
+    )
+
+    rule_promoter = AsyncMock()
+    rule_promoter.record_step_result = AsyncMock()
+
+    callback = MagicMock()
+    callback.on_progress = MagicMock()
+
+    orch = Orchestrator(
+        executor=mock_executor,
+        extractor=mock_extractor,
+        rule_engine=mock_rule_engine,
+        verifier=mock_verifier,
+        rule_promoter=rule_promoter,
+        progress_callback=callback,
+    )
+
+    step = _make_step()
+    result = await orch.execute_one(step)
+
+    assert result.success is True
+    assert result.method == "R"
+    rule_promoter.record_step_result.assert_awaited_once()
+
+    # Check callbacks emitted
+    events = [call[0][0].event for call in callback.on_progress.call_args_list]
+    assert ProgressEvent.RUN_STARTED in events
+    assert ProgressEvent.STEP_COMPLETED in events
+    assert ProgressEvent.RUN_COMPLETED in events
+
+
+async def test_execute_one_failure(
+    mock_executor: AsyncMock,
+    mock_extractor: AsyncMock,
+    mock_rule_engine: MagicMock,
+    mock_verifier: AsyncMock,
+) -> None:
+    """execute_one with failing step emits STEP_FAILED."""
+    mock_rule_engine.match.return_value = None
+    mock_rule_engine.heuristic_select.return_value = None
+
+    callback = MagicMock()
+    callback.on_progress = MagicMock()
+
+    orch = Orchestrator(
+        executor=mock_executor,
+        extractor=mock_extractor,
+        rule_engine=mock_rule_engine,
+        verifier=mock_verifier,
+        progress_callback=callback,
+    )
+
+    step = _make_step(max_attempts=1)
+    result = await orch.execute_one(step)
+
+    assert result.success is False
+
+    events = [call[0][0].event for call in callback.on_progress.call_args_list]
+    assert ProgressEvent.STEP_FAILED in events
+
+
+async def test_run_intent_success(
+    mock_executor: AsyncMock,
+    mock_extractor: AsyncMock,
+    mock_rule_engine: MagicMock,
+    mock_verifier: AsyncMock,
+) -> None:
+    """run_intent('click search', '#btn') works."""
+    mock_rule_engine.match.return_value = RuleMatch(
+        rule_id="r1", selector="#btn", method="click"
+    )
+
+    orch = Orchestrator(
+        executor=mock_executor,
+        extractor=mock_extractor,
+        rule_engine=mock_rule_engine,
+        verifier=mock_verifier,
+    )
+
+    result = await orch.run_intent("click search", "#btn")
+
+    assert result.success is True
+    assert result.step_id == "inline_1"
+
+
+async def test_run_intent_defaults(
+    mock_executor: AsyncMock,
+    mock_extractor: AsyncMock,
+    mock_rule_engine: MagicMock,
+    mock_verifier: AsyncMock,
+) -> None:
+    """run_intent with minimal args (no selector, no arguments)."""
+    mock_rule_engine.match.return_value = None
+    mock_rule_engine.heuristic_select.return_value = None
+
+    orch = Orchestrator(
+        executor=mock_executor,
+        extractor=mock_extractor,
+        rule_engine=mock_rule_engine,
+        verifier=mock_verifier,
+    )
+
+    result = await orch.run_intent("click something")
+
+    assert result.step_id == "inline_1"
+    # Will fail because no rule match and no heuristic, but should not crash
     assert result.success is False

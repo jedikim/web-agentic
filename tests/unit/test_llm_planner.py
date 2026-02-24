@@ -151,6 +151,40 @@ class TestPlanParsing:
         assert steps[0].max_attempts == 3
         assert steps[0].timeout_ms == 10000
 
+    def test_field_aliases(self) -> None:
+        """Accept id->step_id, description->intent, action->node_type."""
+        text = json.dumps([{
+            "id": "s1",
+            "description": "click the button",
+            "action": "extract",
+        }])
+        steps, _ = LLMPlanner._parse_plan_response(text)
+        assert steps[0].step_id == "s1"
+        assert steps[0].intent == "click the button"
+        assert steps[0].node_type == "extract"
+
+    def test_max_attempts_positive_validation(self) -> None:
+        """max_attempts and timeout_ms are clamped to positive integers."""
+        text = json.dumps([{
+            "step_id": "s1",
+            "intent": "test",
+            "max_attempts": -1,
+            "timeout_ms": 0,
+        }])
+        steps, _ = LLMPlanner._parse_plan_response(text)
+        assert steps[0].max_attempts >= 1
+        assert steps[0].timeout_ms >= 1
+
+    def test_preamble_with_json_plan(self) -> None:
+        """Parse plan response with preamble text before JSON."""
+        text = "Sure! Here is the automation plan:\n" + json.dumps({
+            "confidence": 0.95,
+            "steps": [{"step_id": "s1", "intent": "navigate"}],
+        })
+        steps, confidence = LLMPlanner._parse_plan_response(text)
+        assert len(steps) == 1
+        assert confidence == 0.95
+
 
 # ── Test: Select Parsing ─────────────────────────────
 
@@ -196,6 +230,33 @@ class TestSelectParsing:
         text = json.dumps([{"eid": "x"}])
         with pytest.raises(ValueError, match="Expected dict"):
             LLMPlanner._parse_select_response(text)
+
+    def test_alternative_field_names(self) -> None:
+        """Accept element_id, selected_eid, selector, id as alternatives to eid."""
+        for field_name in ("element_id", "selected_eid", "selector", "id"):
+            text = json.dumps({field_name: "btn-search", "confidence": 0.8})
+            patch = LLMPlanner._parse_select_response(text)
+            assert patch.target == "btn-search"
+            assert patch.confidence == 0.8
+
+    def test_confidence_clamping(self) -> None:
+        """Confidence values are clamped to [0.0, 1.0]."""
+        # Above 1.0
+        text = json.dumps({"eid": "btn", "confidence": 1.5})
+        patch = LLMPlanner._parse_select_response(text)
+        assert patch.confidence == 1.0
+
+        # Below 0.0
+        text = json.dumps({"eid": "btn", "confidence": -0.3})
+        patch = LLMPlanner._parse_select_response(text)
+        assert patch.confidence == 0.0
+
+    def test_alternative_reasoning_fields(self) -> None:
+        """Accept reason, explanation as alternatives to reasoning."""
+        for field_name in ("reason", "explanation"):
+            text = json.dumps({"eid": "btn", field_name: "because it matches"})
+            patch = LLMPlanner._parse_select_response(text)
+            assert patch.data["reasoning"] == "because it matches"
 
 
 # ── Test: Plan Method (with mocked API) ─────────────
@@ -472,6 +533,29 @@ class TestExtractJson:
     def test_whitespace_stripped(self) -> None:
         """Leading/trailing whitespace is stripped."""
         assert _extract_json("  \n  [1]  \n  ") == "[1]"
+
+    def test_preamble_before_json(self) -> None:
+        """Extract JSON when preamble text precedes it."""
+        text = 'Here is the analysis:\n{"eid": "btn-1", "confidence": 0.9}'
+        result = _extract_json(text)
+        data = json.loads(result)
+        assert data["eid"] == "btn-1"
+
+    def test_nested_braces(self) -> None:
+        """Handle JSON with nested objects/arrays."""
+        text = 'Some text {"outer": {"inner": [1, 2]}, "key": "val"} more text'
+        result = _extract_json(text)
+        data = json.loads(result)
+        assert data["key"] == "val"
+        assert data["outer"]["inner"] == [1, 2]
+
+    def test_raw_array_no_fence(self) -> None:
+        """Extract raw JSON array without markdown fences."""
+        text = 'The steps are: [{"step_id": "s1", "intent": "click"}]'
+        result = _extract_json(text)
+        data = json.loads(result)
+        assert isinstance(data, list)
+        assert data[0]["step_id"] == "s1"
 
 
 # ── Test: Factory ────────────────────────────────────

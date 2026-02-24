@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>Pagination Test</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        #page-content { padding: 16px; background: #f5f5f5; margin: 16px 0; min-height: 40px; }
+        .pagination { display: flex; gap: 4px; align-items: center; }
+        .page-link, #prev-page, #next-page {
+            padding: 8px 12px; border: 1px solid #ccc; cursor: pointer;
+            text-decoration: none; color: #333; border-radius: 4px;
+            display: inline-block;
+        }
+        .page-link.active { background: #3498db; color: #fff; border-color: #3498db; }
+        #prev-page, #next-page { font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>Pagination Test</h1>
+
+    <div id="page-content">Page 1 content</div>
+
+    <div class="pagination">
+        <a id="prev-page" onclick="changePage(currentPage - 1)">이전</a>
+        <a class="page-link active" data-page="1" onclick="changePage(1)">1</a>
+        <a class="page-link" data-page="2" onclick="changePage(2)">2</a>
+        <a class="page-link" data-page="3" onclick="changePage(3)">3</a>
+        <a id="next-page" onclick="changePage(currentPage + 1)">다음</a>
+    </div>
+
+    <script>
+        var currentPage = 1;
+        function changePage(page) {
+            if (page < 1 || page > 3) return;
+            currentPage = page;
+            document.getElementById('page-content').textContent = 'Page ' + page + ' content';
+            document.querySelectorAll('.page-link').forEach(function(el) {
+                el.classList.toggle('active', parseInt(el.dataset.page) === page);
+            });
+        }
+    </script>
+</body>
+</html>

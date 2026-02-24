@@ -316,3 +316,63 @@ class IMemoryManager(Protocol):
     async def load_episode(self, task_id: str) -> dict[str, Any] | None: ...
     async def query_policy(self, intent: str, site: str) -> RuleMatch | None: ...
     async def save_policy(self, rule: RuleDefinition, success_count: int) -> None: ...
+
+
+# ── Vision Protocol Interfaces ──────────────────────
+
+
+class IYOLODetector(Protocol):
+    """YOLO local detection interface."""
+
+    async def detect(self, screenshot: bytes) -> list[Any]: ...
+    async def detect_elements(self, screenshot: bytes) -> list[ExtractedElement]: ...
+
+
+class IVLMClient(Protocol):
+    """VLM API client interface."""
+
+    async def select_element(
+        self, screenshot: bytes, candidates: list[ExtractedElement], intent: str
+    ) -> PatchData: ...
+
+
+class ICoordMapper(Protocol):
+    """Coordinate reverse mapping interface."""
+
+    def find_closest_element(
+        self, point: tuple[int, int], candidates: list[ExtractedElement]
+    ) -> ExtractedElement | None: ...
+
+
+# ── Progress Callback Types ─────────────────────────
+
+
+class ProgressEvent(str, Enum):
+    """Events emitted during orchestration."""
+
+    RUN_STARTED = "run_started"
+    STEP_STARTED = "step_started"
+    STEP_COMPLETED = "step_completed"
+    STEP_FAILED = "step_failed"
+    LEVEL_CHANGED = "level_changed"
+    RUN_COMPLETED = "run_completed"
+
+
+@dataclass(frozen=True)
+class ProgressInfo:
+    """Information emitted with progress events."""
+
+    event: ProgressEvent
+    step_id: str = ""
+    step_index: int = 0
+    total_steps: int = 0
+    method: str = ""
+    attempt: int = 0
+    message: str = ""
+    result: StepResult | None = None
+
+
+class IProgressCallback(Protocol):
+    """Callback interface for progress events."""
+
+    def on_progress(self, info: ProgressInfo) -> None: ...

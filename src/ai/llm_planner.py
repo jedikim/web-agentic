@@ -207,9 +207,11 @@ class LLMPlanner:
     def _parse_plan_response(text: str) -> tuple[list[StepDefinition], float]:
         """Parse a plan response into StepDefinitions and confidence.
 
-        Handles two response formats:
-        1. Wrapped: ``{"confidence": 0.85, "steps": [...]}``
-        2. Direct: ``[{...}, {...}]``
+        Handles aliases:
+        - step_id: also accepts id
+        - intent: also accepts description
+        - node_type: also accepts action, type
+        - max_attempts, timeout_ms: validated as positive integers
 
         Args:
             text: Raw LLM response text.
@@ -238,14 +240,29 @@ class LLMPlanner:
         for i, s in enumerate(steps_data):
             if not isinstance(s, dict):
                 raise ValueError(f"Step {i} is not a dict: {type(s).__name__}")
+
+            # Handle field aliases
+            step_id = str(s.get("step_id") or s.get("id") or f"step_{i + 1}")
+            intent = str(s.get("intent") or s.get("description") or "")
+            node_type = str(
+                s.get("node_type") or s.get("action") or s.get("type") or "action"
+            )
+
+            # Validate positive integers
+            raw_max_attempts = s.get("max_attempts", 3)
+            max_attempts = max(1, int(raw_max_attempts))
+
+            raw_timeout_ms = s.get("timeout_ms", 10000)
+            timeout_ms = max(1, int(raw_timeout_ms))
+
             step = StepDefinition(
-                step_id=str(s.get("step_id", f"step_{i + 1}")),
-                intent=str(s.get("intent", "")),
-                node_type=str(s.get("node_type", "action")),
+                step_id=step_id,
+                intent=intent,
+                node_type=node_type,
                 selector=s.get("selector"),
                 arguments=list(s.get("arguments", [])),
-                max_attempts=int(s.get("max_attempts", 3)),
-                timeout_ms=int(s.get("timeout_ms", 10000)),
+                max_attempts=max_attempts,
+                timeout_ms=timeout_ms,
             )
             steps.append(step)
 
@@ -258,15 +275,20 @@ class LLMPlanner:
     def _parse_select_response(text: str) -> PatchData:
         """Parse a select response into PatchData.
 
+        Accepts alternative field names for robustness:
+        - eid: also accepts element_id, selected_eid, selector, id
+        - confidence: clamped to [0.0, 1.0]
+        - reasoning: also accepts reason, explanation
+
         Args:
             text: Raw LLM response text.
 
         Returns:
-            ``PatchData`` with ``patch_type="selector_fix"``.
+            PatchData with patch_type="selector_fix".
 
         Raises:
             json.JSONDecodeError: If the text is not valid JSON.
-            KeyError: If required fields are missing.
+            KeyError: If no element ID field is found.
         """
         cleaned = _extract_json(text)
         data = json.loads(cleaned)
@@ -274,9 +296,27 @@ class LLMPlanner:
         if not isinstance(data, dict):
             raise ValueError(f"Expected dict, got {type(data).__name__}")
 
-        eid = data["eid"]
-        confidence = float(data.get("confidence", 0.5))
-        reasoning = data.get("reasoning", "")
+        # Accept alternative field names for element ID
+        eid = None
+        for key in ("eid", "element_id", "selected_eid", "selector", "id"):
+            if key in data:
+                eid = data[key]
+                break
+        if eid is None:
+            raise KeyError(
+                "No element ID field found (tried: eid, element_id, selected_eid, selector, id)"
+            )
+
+        # Confidence with clamping
+        raw_confidence = float(data.get("confidence", 0.5))
+        confidence = max(0.0, min(1.0, raw_confidence))
+
+        # Accept alternative reasoning fields
+        reasoning = ""
+        for key in ("reasoning", "reason", "explanation"):
+            if key in data:
+                reasoning = data[key]
+                break
 
         return PatchData(
             patch_type="selector_fix",
@@ -290,9 +330,12 @@ class LLMPlanner:
 
 
 def _extract_json(text: str) -> str:
-    """Extract JSON from a response that may contain markdown fences.
+    """Extract JSON from a response that may contain markdown fences or preamble.
 
-    Handles responses wrapped in ```json ... ``` blocks.
+    Handles:
+    1. Markdown code fences (```json ... ```)
+    2. Raw JSON structure detection ({...} or [...])
+    3. Fallback: return stripped text
 
     Args:
         text: Raw response text.
@@ -300,11 +343,50 @@ def _extract_json(text: str) -> str:
     Returns:
         Cleaned JSON string.
     """
-    # Strip markdown code fences
+    # 1. Try markdown code fences first
     match = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
     if match:
         return match.group(1).strip()
-    return text.strip()
+
+    # 2. Try to find raw JSON structure (outermost { } or [ ])
+    #    Pick whichever delimiter appears first in the text.
+    stripped = text.strip()
+    candidates: list[tuple[int, str, str]] = []
+    for start_char, end_char in [("{", "}"), ("[", "]")]:
+        idx = stripped.find(start_char)
+        if idx != -1:
+            candidates.append((idx, start_char, end_char))
+
+    # Sort by position so we try the earliest delimiter first
+    candidates.sort(key=lambda x: x[0])
+
+    for start_idx, start_char, end_char in candidates:
+        # Find matching closing bracket
+        depth = 0
+        in_string = False
+        escape = False
+        for i in range(start_idx, len(stripped)):
+            c = stripped[i]
+            if escape:
+                escape = False
+                continue
+            if c == "\\":
+                escape = True
+                continue
+            if c == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if c == start_char:
+                depth += 1
+            elif c == end_char:
+                depth -= 1
+                if depth == 0:
+                    return stripped[start_idx : i + 1]
+
+    # 3. Fallback
+    return stripped
 
 
 # ── Factory ──────────────────────────────────────────

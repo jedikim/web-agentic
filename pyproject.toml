@@ -42,4 +42,9 @@ warn_unused_configs = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
+markers = [
+    "e2e: End-to-end tests requiring a real browser",
+    "live: Tests against live websites (requires RUN_LIVE_TESTS=1)",
+]

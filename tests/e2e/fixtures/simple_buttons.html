@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>Simple Buttons Test</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        button { padding: 8px 16px; margin: 4px; cursor: pointer; }
+        a { margin: 0 8px; }
+        .tab-bar { display: flex; gap: 4px; margin: 16px 0; }
+        .tab-bar [role="tab"] {
+            padding: 8px 16px; cursor: pointer; border: 1px solid #ccc;
+            background: #f5f5f5; border-radius: 4px 4px 0 0;
+        }
+        .tab-bar [role="tab"].active { background: #fff; border-bottom-color: #fff; }
+        #result { margin-top: 16px; padding: 12px; background: #f0f0f0; min-height: 24px; }
+        #status { color: #666; }
+    </style>
+</head>
+<body>
+    <h1>Simple Buttons Test</h1>
+    <p id="status">Ready</p>
+
+    <div>
+        <button id="btn-search" role="button" onclick="showResult('검색')">검색</button>
+        <button id="btn-sort" role="button" onclick="showResult('인기순')">인기순</button>
+        <button id="btn-next" role="button" onclick="showResult('다음')">다음</button>
+    </div>
+
+    <div>
+        <a id="link-home" href="#">Home</a>
+        <a id="link-about" href="#">About</a>
+    </div>
+
+    <div class="tab-bar" role="tablist">
+        <span role="tab" data-tab="1" onclick="selectTab(this)">Tab 1</span>
+        <span role="tab" data-tab="2" onclick="selectTab(this)">Tab 2</span>
+        <span role="tab" data-tab="3" onclick="selectTab(this)">Tab 3</span>
+    </div>
+
+    <div id="result"></div>
+
+    <script>
+        function showResult(name) {
+            document.getElementById('result').textContent = 'Clicked: ' + name;
+            document.getElementById('status').textContent = 'Action: ' + name;
+        }
+        function selectTab(el) {
+            document.querySelectorAll('[role="tab"]').forEach(t => t.classList.remove('active'));
+            el.classList.add('active');
+            showResult('Tab ' + el.dataset.tab);
+        }
+    </script>
+</body>
+</html>

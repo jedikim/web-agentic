@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>Dynamic Content Test</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        #loading { color: #999; font-size: 1.2em; }
+        #content { padding: 16px; background: #e8f5e9; border-radius: 8px; }
+        .lazy-item { padding: 8px; margin: 4px 0; background: #f5f5f5; border-radius: 4px; }
+        #load-more { padding: 8px 16px; cursor: pointer; margin-top: 16px; }
+    </style>
+</head>
+<body>
+    <h1>Dynamic Content Test</h1>
+
+    <div id="loading">Loading...</div>
+    <div id="content" style="display:none">Dynamic content loaded!</div>
+
+    <button id="load-more" onclick="loadMore()">Load More</button>
+    <div id="lazy-container"></div>
+
+    <script>
+        var itemCount = 0;
+        setTimeout(function() {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('content').style.display = 'block';
+        }, 1000);
+
+        function loadMore() {
+            setTimeout(function() {
+                itemCount++;
+                var item = document.createElement('div');
+                item.className = 'lazy-item';
+                item.textContent = 'Item ' + itemCount;
+                document.getElementById('lazy-container').appendChild(item);
+            }, 500);
+        }
+    </script>
+</body>
+</html>
