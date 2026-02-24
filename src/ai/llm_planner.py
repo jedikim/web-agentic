@@ -23,6 +23,9 @@ logger = logging.getLogger(__name__)
 # ── Cost constants (approximate USD per token) ───────
 
 _COST_PER_TOKEN: dict[str, float] = {
+    "gemini-3-flash-preview": 0.00001,
+    "gemini-2.5-flash": 0.00001,
+    "gemini-2.5-pro": 0.00005,
     "gemini-2.0-flash": 0.00001,
     "gemini-2.5-pro-preview-06-05": 0.00005,
 }
@@ -69,15 +72,15 @@ class LLMPlanner:
         self,
         prompt_manager: PromptManager,
         api_key: str | None = None,
-        tier1_model: str = "gemini-2.0-flash",
-        tier2_model: str = "gemini-2.5-pro-preview-06-05",
+        tier1_model: str = "gemini-3-flash-preview",
+        tier2_model: str = "gemini-2.5-pro",
     ) -> None:
         self.prompt_manager = prompt_manager
         self.tier1_model = tier1_model
         self.tier2_model = tier2_model
         self.usage = UsageStats()
 
-        resolved_key = api_key or os.environ.get("GEMINI_API_KEY", "")
+        resolved_key = api_key or os.environ.get("GEMINI_API_KEY", "") or os.environ.get("GOOGLE_API_KEY", "")
         if resolved_key:
             genai.configure(api_key=resolved_key)
 
@@ -220,6 +223,53 @@ class LLMPlanner:
         self.usage.record(self.tier2_model, tokens)
         steps, _ = self._parse_plan_response(response_text)
         return steps
+
+    async def solve_captcha(self, captcha_info: dict[str, str]) -> str:
+        """Solve a CAPTCHA given its visual analysis.
+
+        The CAPTCHA has already been analyzed by YOLO/VLM.
+        This method uses pure text reasoning to compute the answer.
+
+        Args:
+            captcha_info: Dict with keys: captcha_type, image_description,
+                          question, and optionally raw_text.
+
+        Returns:
+            The answer string to type into the CAPTCHA input.
+        """
+        prompt = (
+            "You are solving a CAPTCHA challenge. The image has already been analyzed.\n\n"
+            f"CAPTCHA type: {captcha_info.get('captcha_type', 'unknown')}\n"
+            f"Image description: {captcha_info.get('image_description', '')}\n"
+            f"Question: {captcha_info.get('question', '')}\n\n"
+            "Based on the description above, what is the correct answer?\n"
+            "Think step by step, then provide ONLY the answer.\n\n"
+            'Respond with JSON: {"reasoning": "step by step thinking", "answer": "the answer"}\n'
+            "The answer should be exactly what needs to be typed into the input field."
+        )
+
+        response_text, tokens = await self._call_gemini(prompt, self.tier1_model)
+        self.usage.record(self.tier1_model, tokens)
+
+        # Parse answer from response
+        try:
+            cleaned = _extract_json(response_text)
+            data = json.loads(cleaned)
+            answer = str(data.get("answer", ""))
+            reasoning = data.get("reasoning", "")
+            logger.info("CAPTCHA solve reasoning: %s", reasoning)
+            logger.info("CAPTCHA solve answer: %s", answer)
+            return answer
+        except (json.JSONDecodeError, KeyError, ValueError):
+            # Fallback: try to extract any short answer from text
+            logger.warning("Failed to parse CAPTCHA solve response, using raw text")
+            # Look for a short answer (numbers, short text)
+            lines = response_text.strip().split("\n")
+            for line in reversed(lines):
+                line = line.strip().strip('"').strip("'")
+                if line and len(line) <= 20:
+                    return line
+            return response_text.strip()[:20]
 
     # ── Internal: Gemini API call ────────────────────
 

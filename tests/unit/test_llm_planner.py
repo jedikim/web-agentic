@@ -573,8 +573,8 @@ class TestFactory:
     def test_factory_default_models(self) -> None:
         """Factory creates planner with default model names."""
         planner = create_llm_planner(api_key="test-key")
-        assert planner.tier1_model == "gemini-2.0-flash"
-        assert planner.tier2_model == "gemini-2.5-pro-preview-06-05"
+        assert planner.tier1_model == "gemini-3-flash-preview"
+        assert planner.tier2_model == "gemini-2.5-pro"
 
 
 # ── Test: Plan With Context ─────────────────────────

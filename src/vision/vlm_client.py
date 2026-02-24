@@ -242,6 +242,61 @@ class VLMClient:
             confidence=parsed["confidence"],
         )
 
+    async def analyze_captcha(self, screenshot: bytes) -> dict[str, Any]:
+        """Analyze a CAPTCHA screenshot using VLM.
+
+        Describes the CAPTCHA type, content, and question so that
+        a text-only LLM can solve it.
+
+        Args:
+            screenshot: Screenshot image bytes showing the CAPTCHA.
+
+        Returns:
+            Dict with captcha_type, question, image_description, and raw_text.
+        """
+        prompt = (
+            "You are analyzing a CAPTCHA security challenge on a web page.\n\n"
+            "Describe in detail:\n"
+            "1. What type of CAPTCHA is this? (text recognition, image selection, "
+            "math problem, question about image, slider, etc.)\n"
+            "2. What does the CAPTCHA image show? Describe ALL text, numbers, "
+            "and visual details you can see in the image.\n"
+            "3. What is the exact question or instruction being asked?\n"
+            "4. What input is expected? (text field, checkbox, drag, etc.)\n\n"
+            "Respond with JSON:\n"
+            '{"captcha_type": "question_about_image", '
+            '"image_description": "detailed description of what the image shows", '
+            '"question": "the exact question text", '
+            '"input_type": "text"}\n\n'
+            "Be VERY precise about numbers, text, and details in the image — "
+            "the answer depends on accurate reading."
+        )
+
+        response = self._call_gemini_vision(self._tier1_model, screenshot, prompt)
+        self._update_stats(self._tier1_model, response)
+
+        try:
+            json_match = re.search(r"\{[^}]+\}", response["text"], re.DOTALL)
+            if json_match:
+                data = json.loads(json_match.group())
+                return {
+                    "captcha_type": str(data.get("captcha_type", "unknown")),
+                    "image_description": str(data.get("image_description", "")),
+                    "question": str(data.get("question", "")),
+                    "input_type": str(data.get("input_type", "text")),
+                    "raw_text": response["text"],
+                }
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+        return {
+            "captcha_type": "unknown",
+            "image_description": "",
+            "question": "",
+            "input_type": "text",
+            "raw_text": response["text"],
+        }
+
     async def describe_page(self, screenshot: bytes) -> str:
         """Describe what's visible on a screenshot.
 

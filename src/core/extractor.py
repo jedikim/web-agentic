@@ -35,11 +35,20 @@ _JS_EXTRACT_INPUTS = """
             const visible = rect.width > 0 && rect.height > 0
                 && getComputedStyle(el).visibility !== 'hidden'
                 && getComputedStyle(el).display !== 'none';
-            const eid = el.id
-                ? `${prefix}#${el.id}`
-                : el.name
-                    ? `${prefix}${el.tagName.toLowerCase()}[name="${el.name}"]`
-                    : `${prefix}${el.tagName.toLowerCase()}:nth-of-type(${i + 1})`;
+            let eid;
+            if (el.id) {
+                eid = `${prefix}#${el.id}`;
+            } else if (el.name) {
+                eid = `${prefix}${el.tagName.toLowerCase()}[name="${el.name}"]`;
+            } else if (el.placeholder) {
+                const ph = el.placeholder.slice(0, 30).replace(/"/g, '\\"');
+                eid = `${prefix}${el.tagName.toLowerCase()}[placeholder*="${ph}"]`;
+            } else if (el.getAttribute('aria-label')) {
+                const al = el.getAttribute('aria-label').slice(0, 30).replace(/"/g, '\\"');
+                eid = `${prefix}${el.tagName.toLowerCase()}[aria-label*="${al}"]`;
+            } else {
+                eid = `${prefix}${el.tagName.toLowerCase()}:nth-of-type(${i + 1})`;
+            }
             const typeAttr = el.getAttribute('type') || el.tagName.toLowerCase();
             const text = el.placeholder || el.getAttribute('aria-label')
                 || el.labels?.[0]?.textContent?.trim() || null;
@@ -117,9 +126,20 @@ _JS_EXTRACT_CLICKABLES = """
                 && getComputedStyle(el).visibility !== 'hidden'
                 && getComputedStyle(el).display !== 'none';
             const tag = el.tagName.toLowerCase();
-            const eid = el.id
-                ? `${prefix}#${el.id}`
-                : `${prefix}${tag}:nth-of-type(${i + 1})`;
+            let eid;
+            if (el.id) {
+                eid = `${prefix}#${el.id}`;
+            } else if (el.getAttribute('aria-label')) {
+                const al = el.getAttribute('aria-label').slice(0, 30).replace(/"/g, '\\"');
+                eid = `${prefix}${tag}[aria-label*="${al}"]`;
+            } else {
+                const text = (el.textContent || '').trim().slice(0, 20);
+                if (text && text.length >= 2) {
+                    eid = `${prefix}${tag}:has-text("${text.replace(/"/g, '\\"')}")`;
+                } else {
+                    eid = `${prefix}${tag}:nth-of-type(${i + 1})`;
+                }
+            }
             if (seen.has(eid)) return;
             seen.add(eid);
 

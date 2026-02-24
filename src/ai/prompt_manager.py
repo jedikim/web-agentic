@@ -55,20 +55,26 @@ _BUILTIN_PROMPTS: dict[str, dict[str, str]] = {
             "User's task: $instruction\n\n"
             "Decompose this task into concrete browser automation steps. "
             "Consider what you see on the current page to decide the next actions.\n\n"
+            "IMPORTANT:\n"
+            "- You MUST cover ALL parts of the user's task. If the task has multiple sub-goals "
+            "(e.g. 'search X AND sort by Y'), generate steps for EVERY sub-goal.\n"
+            "- After submitting a search/form, add a 'wait' step (2000-3000ms) for results to load.\n"
+            "- After results load, continue with remaining actions (sorting, filtering, clicking, etc.).\n\n"
             "Each step must specify:\n"
             '- "step_id": unique string (e.g. "step_1")\n'
             '- "intent": what this step does in natural language\n'
             '- "action": one of "goto", "click", "type", "press_key", "scroll", "wait"\n'
             '- "selector": CSS selector if known, or null\n'
-            '- "arguments": array of strings (URL for goto, text for type, key for press_key)\n'
+            '- "arguments": array of strings (URL for goto, text for type, key for press_key, ms for wait)\n'
             '- "verify": optional verification object e.g. {"type": "url_contains", "value": "query="}\n\n'
             "Return JSON:\n"
             '{"confidence": 0.9, "steps": [...]}\n\n'
             "Constraints:\n"
             "- Output MUST be valid JSON only.\n"
             "- Each step = one atomic browser action.\n"
-            "- For search: type into search input, then press Enter or click search button.\n"
-            "- Be specific about what element to interact with."
+            "- For search: type into search input, then press Enter or click search button, then wait for results.\n"
+            "- Be specific about what element to interact with.\n"
+            "- Do NOT stop after the first sub-goal. Complete the ENTIRE task."
         ),
     },
     "select_element": {

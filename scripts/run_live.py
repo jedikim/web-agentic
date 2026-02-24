@@ -29,6 +29,27 @@ from src.core.selector_cache import SelectorCache  # noqa: E402
 from src.core.verifier import Verifier  # noqa: E402
 
 
+def _create_vlm_client():
+    """Create VLM client if dependencies available."""
+    try:
+        from src.vision.vlm_client import create_vlm_client
+        return create_vlm_client(
+            tier1_model="gemini-2.5-flash",
+            tier2_model="gemini-2.5-pro",
+        )
+    except ImportError:
+        return None
+
+
+def _create_yolo_detector():
+    """Create YOLO detector if dependencies available."""
+    try:
+        from src.vision.yolo_detector import create_yolo_detector
+        return create_yolo_detector()
+    except (ImportError, Exception):
+        return None
+
+
 async def main(intent: str, url: str | None, headless: bool) -> None:
     """Run the LLM-First orchestrator on a real site."""
     logging.basicConfig(
@@ -46,6 +67,11 @@ async def main(intent: str, url: str | None, headless: bool) -> None:
     cache = SelectorCache("data/live_cache.db")
     await cache.init()
 
+    # Vision modules (optional — for CAPTCHA solving)
+    vlm = _create_vlm_client()
+    yolo = _create_yolo_detector()
+    log.info("Vision modules: VLM=%s, YOLO=%s", vlm is not None, yolo is not None)
+
     screenshot_dir = Path("data/screenshots")
 
     orch = LLMFirstOrchestrator(
@@ -55,6 +81,8 @@ async def main(intent: str, url: str | None, headless: bool) -> None:
         verifier=verifier,
         cache=cache,
         screenshot_dir=screenshot_dir,
+        yolo_detector=yolo,
+        vlm_client=vlm,
     )
 
     # Navigate to starting URL if provided
