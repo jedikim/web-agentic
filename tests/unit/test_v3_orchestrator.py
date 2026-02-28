@@ -836,6 +836,32 @@ class TestFastHoverFollowup:
         assert "danawa.com" not in keywords
 
 
+class TestDedupSteps:
+    def test_exact_match_removed(self) -> None:
+        steps = [_step(desc="가격 필터 적용"), _step(desc="색상 선택")]
+        completed = ["가격 필터 적용"]
+        result = V3Orchestrator._dedup_steps(steps, completed)
+        assert len(result) == 1
+        assert result[0].target_description == "색상 선택"
+
+    def test_substring_match_removed(self) -> None:
+        steps = [_step(desc="가격대 필터의 검색 버튼")]
+        completed = ["가격대 필터의 검색 버튼 클릭"]
+        result = V3Orchestrator._dedup_steps(steps, completed)
+        assert len(result) == 0
+
+    def test_no_overlap_keeps_all(self) -> None:
+        steps = [_step(desc="색상 선택"), _step(desc="상품 클릭")]
+        completed = ["메뉴 호버"]
+        result = V3Orchestrator._dedup_steps(steps, completed)
+        assert len(result) == 2
+
+    def test_empty_completed(self) -> None:
+        steps = [_step(desc="색상 선택")]
+        result = V3Orchestrator._dedup_steps(steps, [])
+        assert len(result) == 1
+
+
 class TestGetDomain:
     def test_extracts_domain(self, orchestrator: V3Orchestrator) -> None:
         assert orchestrator._get_domain("https://shop.naver.com/search") == "shop.naver.com"

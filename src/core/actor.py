@@ -71,7 +71,8 @@ class Actor:
             f"Task step: {step.action_type} - {step.target_description}\n"
             f"Candidates:\n{yaml_text}\n\n"
             f'Output JSON: {{"index": N, "selector": "css_selector", '
-            f'"action": "click" or "type", "value": "..."}}'
+            f'"action": "click" or "type" or "hover" or "scroll", '
+            f'"value": "..."}}'
         )
 
         response = await self._llm.generate(prompt)
@@ -92,7 +93,14 @@ class Actor:
 
         # For type/fill actions, always use step.value from planner.
         # The planner decides WHAT to type; the actor decides WHERE.
-        action_type = parsed["action"]
+        # For hover/scroll/press, preserve planner's action_type since
+        # the LLM often defaults to "click" even when step says "hover".
+        actor_action = parsed["action"]
+        planner_action = step.action_type.lower()
+        if planner_action in ("hover", "scroll", "press", "wait", "goto"):
+            action_type = planner_action
+        else:
+            action_type = actor_action
         value = step.value if action_type in ("type", "fill") else parsed.get("value") or step.value
 
         return Action(

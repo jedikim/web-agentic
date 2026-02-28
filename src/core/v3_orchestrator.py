@@ -17,7 +17,7 @@ Retry: 2 consecutive failures → replan from current screen.
 Max replan: 2 times per step group (failure-based).
 Max progressive replan: 5 times (navigation/state-based).
 
-Safety: total timeout (300s) and API call budget (40 calls) prevent runaway.
+Safety: total timeout (420s) and API call budget (60 calls) prevent runaway.
 """
 
 from __future__ import annotations
@@ -87,8 +87,8 @@ FILTER_SCORE_THRESHOLD = 0.5
 MAX_RETRY_PER_STEP = 2
 MAX_REPLAN = 2
 MAX_PROGRESSIVE_REPLAN = 5  # Re-plan after page/state changes
-MAX_API_CALLS = 40
-DEFAULT_TIMEOUT_S = 300.0
+MAX_API_CALLS = 60
+DEFAULT_TIMEOUT_S = 420.0
 # Actions that don't change page structure — skip replan check
 _PASSIVE_ACTIONS = frozenset({"type", "fill", "wait"})
 
@@ -251,6 +251,31 @@ class V3Orchestrator:
         if not completed:
             return ""
         return "완료: " + ", ".join(completed)
+
+    @staticmethod
+    def _dedup_steps(
+        steps: list[StepPlan], completed: list[str],
+    ) -> list[StepPlan]:
+        """Remove steps whose description matches already-completed work."""
+        if not completed:
+            return steps
+        lower_completed = {c.lower() for c in completed}
+        result: list[StepPlan] = []
+        for s in steps:
+            desc_lower = s.target_description.lower()
+            # Exact match or high keyword overlap → skip
+            if desc_lower in lower_completed:
+                continue
+            # Check if any completed desc is a significant substring
+            skip = False
+            for c in lower_completed:
+                # Both directions: completed ⊂ new or new ⊂ completed
+                if len(c) >= 4 and (c in desc_lower or desc_lower in c):
+                    skip = True
+                    break
+            if not skip:
+                result.append(s)
+        return result
 
     async def run_with_result(
         self,
@@ -522,7 +547,9 @@ class V3Orchestrator:
                             steps = await self.planner.plan(
                                 f"{task} ({comp})\n"
                                 f"메뉴 탐색 완료. 현재 페이지에서"
-                                f" 남은 작업만 출력하세요.",
+                                f" 남은 작업만 출력하세요.\n"
+                                f"가격, 색상 등 필터가 필요하면"
+                                f" 필터부터 적용한 후 상품을 선택하세요.",
                                 screenshot,
                             )
                             self._track_vlm_call()
@@ -552,7 +579,11 @@ class V3Orchestrator:
                         f"완료: {completed_str}\n"
                         f"현재 스크린샷을 보고 이 페이지에서 할 수 있는"
                         f" 다음 스텝만 출력하세요."
-                        f" 이미 도착한 카테고리 메뉴를 다시 탐색하지 마세요."
+                        f" 이미 도착한 카테고리 메뉴를 다시 탐색하지 마세요.\n"
+                        f"중요: 가격, 색상 등 필터 조건이 남아있으면"
+                        f" 반드시 필터를 먼저 적용한 후에 상품을 선택하세요."
+                        f" 필터 적용 전에 상품을 직접 클릭하지 마세요.\n"
+                        f"이미 완료된 스텝은 다시 실행하지 마세요."
                         f" 완료되었으면 빈 배열 [] 출력.",
                         screenshot,
                     )
@@ -562,15 +593,24 @@ class V3Orchestrator:
                         logger.info("Task complete — no extra steps")
                         task_done = True
                     else:
-                        progressive_replan_count += 1
-                        logger.info(
-                            "Task not done — %d more steps: %s",
-                            len(extra),
-                            " → ".join(
-                                s.target_description for s in extra
-                            ),
-                        )
-                        steps = extra
+                        # Deduplicate: skip steps matching already-completed
+                        deduped = self._dedup_steps(extra, completed_descs)
+                        if not deduped:
+                            logger.info(
+                                "All %d extra steps already completed",
+                                len(extra),
+                            )
+                            task_done = True
+                        else:
+                            progressive_replan_count += 1
+                            logger.info(
+                                "Task not done — %d more steps: %s",
+                                len(deduped),
+                                " → ".join(
+                                    s.target_description for s in deduped
+                                ),
+                            )
+                            steps = deduped
 
         except _BudgetExceededError as exc:
             logger.error("Budget exceeded: %s", exc)

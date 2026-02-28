@@ -209,6 +209,8 @@ class TestVisionFallback:
         action: Action,
     ) -> None:
         mock_browser._page.url = "https://example.com"
+        # Return None from evaluate (non-checkbox element)
+        mock_browser._page.evaluate = AsyncMock(return_value=None)
         same_bytes = self._make_png("solid")
         step = StepPlan(
             step_index=0, action_type="click",
@@ -256,6 +258,118 @@ class TestExtractHints:
 
     def test_extract_dom_hint_none(self, verifier: ResultVerifier) -> None:
         assert verifier._extract_dom_hint("no dom here") is None
+
+
+class TestActionTypeVerification:
+    """Verify action-type-aware DOM checks (type/fill, checkbox/radio)."""
+
+    async def test_type_action_value_matches_returns_ok(
+        self, verifier: ResultVerifier, mock_browser: Browser,
+        pre_screenshot: bytes, post_screenshot: bytes,
+    ) -> None:
+        """type action: input value contains typed text → ok."""
+        mock_browser._page.url = "https://example.com"
+        mock_browser._page.evaluate = AsyncMock(return_value="100000")
+        type_action = Action(
+            selector="#priceMax", action_type="type", value="100000",
+        )
+        step = StepPlan(
+            step_index=0, action_type="type",
+            target_description="가격 입력",
+            expected_result="화면 변화",
+        )
+        result = await verifier.verify_result(
+            pre_screenshot, pre_screenshot, type_action, step,
+            mock_browser, "https://example.com",
+        )
+        assert result == "ok"
+
+    async def test_type_action_no_value_falls_through(
+        self, verifier: ResultVerifier, mock_browser: Browser,
+        pre_screenshot: bytes, post_screenshot: bytes,
+    ) -> None:
+        """type action: input value doesn't match → falls through to pHash."""
+        mock_browser._page.url = "https://example.com"
+        mock_browser._page.evaluate = AsyncMock(return_value="")
+        type_action = Action(
+            selector="#priceMax", action_type="type", value="100000",
+        )
+        step = StepPlan(
+            step_index=0, action_type="type",
+            target_description="가격 입력",
+            expected_result="화면 변화",
+        )
+        # Same screenshot → pHash won't differ → "failed"
+        result = await verifier.verify_result(
+            pre_screenshot, pre_screenshot, type_action, step,
+            mock_browser, "https://example.com",
+        )
+        assert result == "failed"
+
+    async def test_checkbox_checked_returns_ok(
+        self, verifier: ResultVerifier, mock_browser: Browser,
+        pre_screenshot: bytes, post_screenshot: bytes,
+    ) -> None:
+        """click on checkbox: checked=True → ok."""
+        mock_browser._page.url = "https://example.com"
+        mock_browser._page.evaluate = AsyncMock(return_value=True)
+        click_action = Action(
+            selector="#colorRed", action_type="click",
+        )
+        step = StepPlan(
+            step_index=0, action_type="click",
+            target_description="레드 체크박스",
+            expected_result="화면 변화",
+        )
+        result = await verifier.verify_result(
+            pre_screenshot, pre_screenshot, click_action, step,
+            mock_browser, "https://example.com",
+        )
+        assert result == "ok"
+
+    async def test_checkbox_unchecked_returns_failed(
+        self, verifier: ResultVerifier, mock_browser: Browser,
+        pre_screenshot: bytes, post_screenshot: bytes,
+    ) -> None:
+        """click on checkbox: checked=False → failed."""
+        mock_browser._page.url = "https://example.com"
+        mock_browser._page.evaluate = AsyncMock(return_value=False)
+        click_action = Action(
+            selector="#colorRed", action_type="click",
+        )
+        step = StepPlan(
+            step_index=0, action_type="click",
+            target_description="레드 체크박스",
+            expected_result="화면 변화",
+        )
+        result = await verifier.verify_result(
+            pre_screenshot, pre_screenshot, click_action, step,
+            mock_browser, "https://example.com",
+        )
+        assert result == "failed"
+
+    async def test_click_non_checkbox_falls_through(
+        self, verifier: ResultVerifier, mock_browser: Browser,
+        pre_screenshot: bytes, post_screenshot: bytes,
+    ) -> None:
+        """click on regular element: returns None from action check → pHash."""
+        mock_browser._page.url = "https://example.com"
+        # Regular element returns null (not checkbox)
+        mock_browser._page.evaluate = AsyncMock(return_value=None)
+        click_action = Action(
+            selector="#submitBtn", action_type="click",
+        )
+        step = StepPlan(
+            step_index=0, action_type="click",
+            target_description="제출 버튼",
+            expected_result="화면 변화",
+        )
+        # Same screenshot → pHash won't differ → "failed"
+        result = await verifier.verify_result(
+            pre_screenshot, pre_screenshot, click_action, step,
+            mock_browser, "https://example.com",
+        )
+        assert result == "failed"
 
 
 class TestWithCacheEntry:

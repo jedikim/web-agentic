@@ -123,6 +123,16 @@ class ResultVerifier:
             )
             return "ok"
 
+        # ===== 2.5: Action-type-aware DOM verification =====
+        dom_result = await self._verify_by_action_type(action, browser)
+        if dom_result is not None:
+            return dom_result
+
+        # ===== 2.6: New tab detection (target="_blank" links) =====
+        new_tab = await self._check_new_tab(browser)
+        if new_tab:
+            return "ok"
+
         # ===== 3: Vision comparison (pHash fallback) =====
         changed = self._screenshots_differ(pre_screenshot, post_screenshot)
 
@@ -144,6 +154,76 @@ class ResultVerifier:
 
         logger.debug("Screenshots differ — action succeeded")
         return "ok"
+
+    async def _check_new_tab(self, browser: Browser) -> bool:
+        """Check if a new tab was opened (target='_blank' links)."""
+        try:
+            pages = browser.context.pages
+            if len(pages) > 1:
+                logger.debug(
+                    "New tab detected (%d pages total)", len(pages),
+                )
+                return True
+        except Exception:
+            pass
+        return False
+
+    async def _verify_by_action_type(
+        self, action: Action | None, browser: Browser,
+    ) -> str | None:
+        """Verify based on the action type using DOM inspection.
+
+        Returns "ok"/"failed" if deterministic, None to fall through to pHash.
+        """
+        if not action or not action.selector:
+            return None
+
+        safe = action.selector.replace("\\", "\\\\").replace("'", "\\'")
+        act = (action.action_type or "").lower()
+
+        # Type/fill: check if the input's value matches what was typed
+        if act in ("type", "fill") and action.value:
+            try:
+                current_value: str = await browser.evaluate(
+                    f"(() => {{"
+                    f"  const el = document.querySelector('{safe}');"
+                    f"  return el ? el.value : null;"
+                    f"}})()"
+                )
+                if current_value is not None and action.value in current_value:
+                    logger.debug(
+                        "Type verify OK: input value '%s' contains '%s'",
+                        current_value[:50], action.value[:30],
+                    )
+                    return "ok"
+            except Exception:
+                pass
+            return None
+
+        # Click on checkbox/radio: check if element is now checked
+        if act == "click":
+            try:
+                check_result = await browser.evaluate(
+                    f"(() => {{"
+                    f"  const el = document.querySelector('{safe}');"
+                    f"  if (!el) return null;"
+                    f"  const tag = el.tagName.toLowerCase();"
+                    f"  const type = (el.type || '').toLowerCase();"
+                    f"  if (tag === 'input' && (type === 'checkbox' || type === 'radio'))"
+                    f"    return el.checked;"
+                    f"  return null;"
+                    f"}})()"
+                )
+                if check_result is True:
+                    logger.debug("Checkbox/radio verify OK: element is checked")
+                    return "ok"
+                if check_result is False:
+                    logger.debug("Checkbox/radio verify: element not checked")
+                    return "failed"
+            except Exception:
+                pass
+
+        return None
 
     def _screenshots_differ(
         self, pre: bytes, post: bytes,

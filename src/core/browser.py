@@ -13,6 +13,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from typing import Any
 
 from playwright.async_api import CDPSession, Page
@@ -84,11 +85,30 @@ class Browser:
         """Wait for a selector to appear."""
         await self._page.wait_for_selector(selector, timeout=timeout)
 
+    @property
+    def context(self) -> Any:
+        """Access the BrowserContext for tab/page management."""
+        return self._page.context
+
     # ── Extraction methods (CDP + Playwright) ─────────────
 
     async def screenshot(self) -> bytes:
-        """Take a full-page screenshot as PNG bytes."""
-        return await self._page.screenshot(type="png")
+        """Take a full-page screenshot as PNG bytes.
+
+        Waits for page load state and retries once on protocol errors
+        (e.g. page navigating during capture).
+        """
+        for attempt in range(2):
+            with contextlib.suppress(Exception):
+                await self._page.wait_for_load_state("domcontentloaded", timeout=5000)
+            try:
+                return await self._page.screenshot(type="png")
+            except Exception:
+                if attempt == 0:
+                    await asyncio.sleep(1)
+                    continue
+                raise
+        raise RuntimeError("screenshot failed after retries")  # unreachable
 
     async def screenshot_clip(
         self, clip: dict[str, float],
