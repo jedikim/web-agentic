@@ -40,10 +40,15 @@ def _patch_deps():
         return_value=RunResult(success=True, total_cost_usd=0.01)
     )
 
+    # V3 pipeline disabled for legacy tests
+    from src.core.config import EngineConfig, V3PipelineConfig
+    mock_config = EngineConfig(v3_pipeline=V3PipelineConfig(enabled=False))
+
     return {
         "executor": mock_executor,
         "cache": mock_cache,
         "orchestrator": mock_orchestrator,
+        "config": mock_config,
     }
 
 
@@ -57,6 +62,7 @@ async def test_lifecycle() -> None:
         patch("src.web_agent.SelectorCache", return_value=mocks["cache"]),
         patch("src.web_agent.create_llm_planner"),
         patch("src.web_agent.LLMFirstOrchestrator", return_value=mocks["orchestrator"]),
+        patch("src.web_agent.load_config", return_value=mocks["config"]),
     ):
         agent = WebAgent(headless=True)
         await agent.start()
@@ -81,6 +87,7 @@ async def test_context_manager() -> None:
         patch("src.web_agent.SelectorCache", return_value=mocks["cache"]),
         patch("src.web_agent.create_llm_planner"),
         patch("src.web_agent.LLMFirstOrchestrator", return_value=mocks["orchestrator"]),
+        patch("src.web_agent.load_config", return_value=mocks["config"]),
     ):
         async with WebAgent(headless=True) as agent:
             result = await agent.run("Do something")
@@ -108,6 +115,7 @@ async def test_cost_tracking() -> None:
         patch("src.web_agent.SelectorCache", return_value=mocks["cache"]),
         patch("src.web_agent.create_llm_planner"),
         patch("src.web_agent.LLMFirstOrchestrator", return_value=mocks["orchestrator"]),
+        patch("src.web_agent.load_config", return_value=mocks["config"]),
     ):
         async with WebAgent(headless=True, max_total_cost=0.10) as agent:
             await agent.run("Step 1")
@@ -144,6 +152,7 @@ async def test_from_executor(mock_executor: AsyncMock) -> None:
         patch("src.web_agent.SelectorCache", return_value=mocks["cache"]),
         patch("src.web_agent.create_llm_planner"),
         patch("src.web_agent.LLMFirstOrchestrator", return_value=mocks["orchestrator"]),
+        patch("src.web_agent.load_config", return_value=mocks["config"]),
     ):
         agent = await WebAgent.from_executor(mock_executor, headless=False)
 
@@ -171,6 +180,7 @@ async def test_cost_limit_exceeded() -> None:
         patch("src.web_agent.SelectorCache", return_value=mocks["cache"]),
         patch("src.web_agent.create_llm_planner"),
         patch("src.web_agent.LLMFirstOrchestrator", return_value=mocks["orchestrator"]),
+        patch("src.web_agent.load_config", return_value=mocks["config"]),
     ):
         async with WebAgent(headless=True, max_total_cost=0.10) as agent:
             await agent.run("Step 1")  # cost = 0.06
@@ -190,6 +200,7 @@ async def test_screenshot() -> None:
         patch("src.web_agent.SelectorCache", return_value=mocks["cache"]),
         patch("src.web_agent.create_llm_planner"),
         patch("src.web_agent.LLMFirstOrchestrator", return_value=mocks["orchestrator"]),
+        patch("src.web_agent.load_config", return_value=mocks["config"]),
     ):
         async with WebAgent() as agent:
             data = await agent.screenshot()
@@ -207,6 +218,7 @@ async def test_double_start_is_idempotent() -> None:
         patch("src.web_agent.SelectorCache", return_value=mocks["cache"]),
         patch("src.web_agent.create_llm_planner"),
         patch("src.web_agent.LLMFirstOrchestrator", return_value=mocks["orchestrator"]),
+        patch("src.web_agent.load_config", return_value=mocks["config"]),
     ):
         agent = WebAgent()
         await agent.start()

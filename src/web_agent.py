@@ -15,15 +15,19 @@ from __future__ import annotations
 
 import logging
 
+from src.ai.candidate_filter import create_candidate_filter
 from src.ai.llm_planner import create_llm_planner
 from src.ai.llm_provider import ILLMProvider
 from src.core.adaptive_controller import AdaptiveController
-from src.core.config import StealthConfig
+from src.core.browser import Browser as V3Browser
+from src.core.config import EngineConfig, StealthConfig, load_config
 from src.core.executor import Executor, create_executor
 from src.core.extractor import DOMExtractor
 from src.core.fallback_router import FallbackRouter
 from src.core.llm_orchestrator import LLMFirstOrchestrator, RunResult
 from src.core.selector_cache import SelectorCache
+from src.core.v3_factory import V3Pipeline, create_v3_pipeline
+from src.core.v3_orchestrator import V3RunResult
 from src.core.verifier import Verifier
 from src.learning.replay_store import ReplayStore
 from src.vision.batch_vision_pipeline import BatchVisionPipeline
@@ -63,6 +67,7 @@ class WebAgent:
         enable_adaptive: bool = False,
         replay_db_path: str = "data/replay.db",
         llm_provider: ILLMProvider | None = None,
+        config: EngineConfig | None = None,
     ) -> None:
         self._headless = headless
         self._max_cost_per_run = max_cost_per_run
@@ -74,11 +79,14 @@ class WebAgent:
         self._enable_adaptive = enable_adaptive
         self._replay_db_path = replay_db_path
         self._llm_provider = llm_provider
+        self._config = config
 
         self._executor: Executor | None = None
         self._cache: SelectorCache | None = None
         self._replay_store: ReplayStore | None = None
         self._orchestrator: LLMFirstOrchestrator | None = None
+        self._v3_pipeline: V3Pipeline | None = None
+        self._use_v3: bool = False
         self._total_cost: float = 0.0
         self._started: bool = False
         self._owns_executor: bool = False
@@ -130,6 +138,10 @@ class WebAgent:
             await self._replay_store.init()
             adaptive_controller = AdaptiveController(self._replay_store)
 
+        # Candidate filter pipeline from config
+        cfg = self._config or load_config()
+        candidate_filter = create_candidate_filter(cfg.candidate_filter)
+
         self._orchestrator = LLMFirstOrchestrator(
             executor=self._executor,
             extractor=extractor,
@@ -143,10 +155,23 @@ class WebAgent:
             batch_vision=batch_vision,
             fallback_router=FallbackRouter(),
             adaptive_controller=adaptive_controller,
+            candidate_filter=candidate_filter,
         )
 
+        # V3 pipeline (when enabled in config)
+        if cfg.v3_pipeline.enabled:
+            try:
+                self._v3_pipeline = create_v3_pipeline(config=cfg)
+                self._use_v3 = True
+                logger.info("V3 pipeline enabled for WebAgent")
+            except Exception:
+                logger.warning(
+                    "V3 pipeline creation failed, using legacy",
+                    exc_info=True,
+                )
+
         self._started = True
-        logger.info("WebAgent started (headless=%s)", self._headless)
+        logger.info("WebAgent started (headless=%s, v3=%s)", self._headless, self._use_v3)
         return self
 
     async def goto(self, url: str) -> None:
@@ -162,21 +187,22 @@ class WebAgent:
         assert self._executor is not None
         await self._executor.goto(url)
 
-    async def run(self, intent: str) -> RunResult:
+    async def run(self, intent: str) -> RunResult | V3RunResult:
         """Execute a natural-language intent.
 
         Args:
             intent: What to do on the current page.
 
         Returns:
-            ``RunResult`` with success flag, step results, and cost.
+            ``RunResult`` or ``V3RunResult`` with success flag, step results,
+            and cost.
 
         Raises:
             RuntimeError: If ``start()`` has not been called or
                 total cost exceeds ``max_total_cost``.
         """
         self._ensure_started()
-        assert self._orchestrator is not None
+        assert self._executor is not None
 
         if self._total_cost >= self._max_total_cost:
             raise RuntimeError(
@@ -184,7 +210,17 @@ class WebAgent:
                 f"limit ${self._max_total_cost:.4f}"
             )
 
-        result = await self._orchestrator.run(intent)
+        if self._use_v3 and self._v3_pipeline:
+            v3_browser = V3Browser(self._executor._page)
+            result: RunResult | V3RunResult = (
+                await self._v3_pipeline.orchestrator.run_with_result(
+                    intent, v3_browser,
+                )
+            )
+        else:
+            assert self._orchestrator is not None
+            result = await self._orchestrator.run(intent)
+
         self._total_cost += result.total_cost_usd
 
         if self._total_cost > self._max_total_cost:
@@ -223,6 +259,8 @@ class WebAgent:
             self._executor = None
 
         self._orchestrator = None
+        self._v3_pipeline = None
+        self._use_v3 = False
         self._started = False
         logger.info("WebAgent closed")
 

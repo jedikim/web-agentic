@@ -12,7 +12,9 @@ Max replan: 2 times.
 from __future__ import annotations
 
 import logging
-from typing import Protocol
+import time
+from dataclasses import dataclass, field
+from typing import Any, Protocol
 from urllib.parse import urlparse
 
 from src.core.browser import Browser
@@ -20,6 +22,49 @@ from src.core.cache import Cache
 from src.core.types import Action, CacheEntry, StepPlan
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class V3StepOutcome:
+    """Result of a single step for API reporting.
+
+    Attributes:
+        step_id: Step identifier (description).
+        success: Whether the step succeeded.
+        method: Resolution method (cache/selector/viewport).
+        latency_ms: Step execution time.
+        cost_usd: Estimated cost (0 for cached).
+    """
+
+    step_id: str = ""
+    success: bool = False
+    method: str = "v3"
+    tokens_used: int = 0
+    latency_ms: float = 0.0
+    cost_usd: float = 0.0
+
+
+@dataclass
+class V3RunResult:
+    """Result of a full v3 automation run.
+
+    Compatible with the API layer's expected RunResult shape.
+
+    Attributes:
+        success: Overall success.
+        step_results: Per-step outcomes for API reporting.
+        screenshots: Screenshot file paths (currently empty).
+        total_tokens: Total tokens consumed (estimated).
+        total_cost_usd: Total estimated cost.
+        result_summary: Human-readable summary.
+    """
+
+    success: bool = False
+    step_results: list[V3StepOutcome] = field(default_factory=list)
+    screenshots: list[str] = field(default_factory=list)
+    total_tokens: int = 0
+    total_cost_usd: float = 0.0
+    result_summary: str = ""
 
 FILTER_SCORE_THRESHOLD = 0.5
 MAX_RETRY_PER_STEP = 3
@@ -148,6 +193,92 @@ class V3Orchestrator:
                 return False  # replan count exceeded
 
         return True
+
+    async def run_with_result(
+        self,
+        task: str,
+        browser: Browser,
+        attachments: list[dict[str, Any]] | None = None,
+    ) -> V3RunResult:
+        """Execute a task and return a rich result for API reporting.
+
+        Same logic as run() but tracks step outcomes for the API layer.
+
+        Args:
+            task: Natural language task description.
+            browser: Browser instance.
+            attachments: Optional attachments (unused, for API compat).
+
+        Returns:
+            V3RunResult with per-step outcomes and totals.
+        """
+        run_start = time.monotonic()
+        step_outcomes: list[V3StepOutcome] = []
+
+        screenshot = await browser.screenshot()
+        steps = await self.planner.plan(task, screenshot)
+
+        if not steps:
+            return V3RunResult(
+                success=False,
+                result_summary="Planner returned no steps",
+            )
+
+        replan_count = 0
+        consecutive_failures = 0
+        i = 0
+
+        while i < len(steps):
+            step_start = time.monotonic()
+            success = await self._execute_step(steps[i], browser)
+            step_ms = (time.monotonic() - step_start) * 1000
+
+            step_outcomes.append(V3StepOutcome(
+                step_id=steps[i].target_description,
+                success=success,
+                method="cache" if success else "v3",
+                latency_ms=step_ms,
+            ))
+
+            if success:
+                consecutive_failures = 0
+                i += 1
+                continue
+
+            consecutive_failures += 1
+
+            if consecutive_failures >= 2:
+                if replan_count < MAX_REPLAN:
+                    replan_count += 1
+                    screenshot = await browser.screenshot()
+                    remaining = " → ".join(
+                        s.target_description for s in steps[i:]
+                    )
+                    steps = await self.planner.plan(
+                        f"{task} (남은 작업: {remaining})", screenshot,
+                    )
+                    if not steps:
+                        break
+                    i = 0
+                    consecutive_failures = 0
+                    continue
+                break
+
+        all_ok = all(o.success for o in step_outcomes) and len(step_outcomes) > 0
+        total_ms = (time.monotonic() - run_start) * 1000
+
+        return V3RunResult(
+            success=all_ok,
+            step_results=step_outcomes,
+            total_tokens=0,
+            total_cost_usd=0.0,
+            result_summary=(
+                f"{'성공' if all_ok else '실패'}: "
+                f"{sum(1 for o in step_outcomes if o.success)}"
+                f"/{len(step_outcomes)} steps "
+                f"({total_ms:.0f}ms)"
+            ),
+        )
 
     async def _execute_step(self, step: StepPlan, browser: Browser) -> bool:
         """Execute a single step with cache check and full pipeline fallback."""

@@ -7,6 +7,7 @@ or constructed programmatically.
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -142,8 +143,102 @@ class LLMConfig:
     """
 
     provider: str = "gemini"
-    flash_model: str = "gemini-2.0-flash"
-    pro_model: str = "gemini-2.5-pro-preview-05-06"
+    flash_model: str = field(
+        default_factory=lambda: os.environ.get("GEMINI_FLASH_MODEL", "gemini-3-flash-preview"),
+    )
+    pro_model: str = field(
+        default_factory=lambda: os.environ.get("GEMINI_PRO_MODEL", "gemini-3.1-pro-preview"),
+    )
+
+
+# ── Candidate Filter ────────────────────────────────
+
+
+@dataclass(frozen=True)
+class CandidateFilterStage1Config:
+    """Stage 1 (structural) filter configuration.
+
+    Attributes:
+        enabled: Whether structural filtering is active.
+        max_candidates: Maximum candidates after Stage 1.
+    """
+
+    enabled: bool = True
+    max_candidates: int = 80
+
+
+@dataclass(frozen=True)
+class CandidateFilterStage2Config:
+    """Stage 2 (vector) ranker configuration.
+
+    Attributes:
+        enabled: Whether vector ranking is active.
+        embedder: Embedder backend name.
+        model: HuggingFace model ID for embeddings.
+        top_k: Number of results to return from vector search.
+        vector_threshold: Minimum candidate count to trigger Stage 2.
+    """
+
+    enabled: bool = False
+    embedder: str = "fastembed"
+    model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    top_k: int = 10
+    vector_threshold: int = 15
+
+
+@dataclass(frozen=True)
+class CandidateFilterConfig:
+    """2-stage candidate filter configuration.
+
+    Attributes:
+        stage1: Structural filter settings.
+        stage2: Vector ranker settings.
+    """
+
+    stage1: CandidateFilterStage1Config = field(
+        default_factory=CandidateFilterStage1Config,
+    )
+    stage2: CandidateFilterStage2Config = field(
+        default_factory=CandidateFilterStage2Config,
+    )
+
+
+# ── V3 Pipeline ────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class V3PipelineConfig:
+    """V3 pipeline configuration.
+
+    Attributes:
+        enabled: Use v3 pipeline instead of legacy LLMFirstOrchestrator.
+        filter_score_threshold: Score threshold for Actor vs viewport path.
+        max_retry_per_step: Maximum retries per step.
+        max_replan: Maximum replan attempts.
+        cache_ttl_days: Cache entry time-to-live in days.
+    """
+
+    enabled: bool = True
+    filter_score_threshold: float = 0.5
+    max_retry_per_step: int = 3
+    max_replan: int = 2
+    cache_ttl_days: int = 30
+
+
+# ── Canvas ─────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class CanvasConfig:
+    """Canvas vision-only path configuration.
+
+    Attributes:
+        enabled: Enable Canvas page detection and vision-only execution.
+        canvas_threshold: DOM element count threshold for Canvas detection.
+    """
+
+    enabled: bool = True
+    canvas_threshold: int = 5
 
 
 # ── Aggregate Config ─────────────────────────────────
@@ -160,6 +255,13 @@ class EngineConfig:
     checkpoint: CheckpointConfig = field(default_factory=CheckpointConfig)
     adaptive: AdaptiveConfig = field(default_factory=AdaptiveConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
+    candidate_filter: CandidateFilterConfig = field(
+        default_factory=CandidateFilterConfig,
+    )
+    v3_pipeline: V3PipelineConfig = field(
+        default_factory=V3PipelineConfig,
+    )
+    canvas: CanvasConfig = field(default_factory=CanvasConfig)
 
 
 # ── Loader ───────────────────────────────────────────
@@ -258,9 +360,49 @@ def _parse_config(raw: dict[str, Any]) -> EngineConfig:
     llm_raw = raw.get("llm", {})
     llm = LLMConfig(
         provider=llm_raw.get("provider", "gemini"),
-        flash_model=llm_raw.get("tier1_model", "gemini-2.0-flash"),
-        pro_model=llm_raw.get("tier2_model", "gemini-2.5-pro-preview-05-06"),
+        flash_model=llm_raw.get("tier1_model", "gemini-3-flash-preview"),
+        pro_model=llm_raw.get("tier2_model", "gemini-3.1-pro-preview"),
     ) if llm_raw else LLMConfig()
+
+    cf_raw = raw.get("candidate_filter", {})
+    if cf_raw:
+        s1_raw = cf_raw.get("stage1", {})
+        s2_raw = cf_raw.get("stage2", {})
+        candidate_filter = CandidateFilterConfig(
+            stage1=CandidateFilterStage1Config(
+                enabled=s1_raw.get("enabled", True),
+                max_candidates=s1_raw.get("max_candidates", 80),
+            ),
+            stage2=CandidateFilterStage2Config(
+                enabled=s2_raw.get("enabled", False),
+                embedder=s2_raw.get("embedder", "fastembed"),
+                model=s2_raw.get(
+                    "model",
+                    "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+                ),
+                top_k=s2_raw.get("top_k", 10),
+                vector_threshold=s2_raw.get("vector_threshold", 15),
+            ),
+        )
+    else:
+        candidate_filter = CandidateFilterConfig()
+
+    v3_raw = raw.get("v3_pipeline", {})
+    v3_pipeline = V3PipelineConfig(
+        enabled=v3_raw.get("enabled", True),
+        filter_score_threshold=float(
+            v3_raw.get("filter_score_threshold", 0.5),
+        ),
+        max_retry_per_step=v3_raw.get("max_retry_per_step", 3),
+        max_replan=v3_raw.get("max_replan", 2),
+        cache_ttl_days=v3_raw.get("cache_ttl_days", 30),
+    ) if v3_raw else V3PipelineConfig()
+
+    canvas_raw = raw.get("canvas", {})
+    canvas = CanvasConfig(
+        enabled=canvas_raw.get("enabled", True),
+        canvas_threshold=canvas_raw.get("canvas_threshold", 5),
+    ) if canvas_raw else CanvasConfig()
 
     return EngineConfig(
         stealth=stealth,
@@ -270,4 +412,7 @@ def _parse_config(raw: dict[str, Any]) -> EngineConfig:
         checkpoint=checkpoint,
         adaptive=adaptive,
         llm=llm,
+        candidate_filter=candidate_filter,
+        v3_pipeline=v3_pipeline,
+        canvas=canvas,
     )
