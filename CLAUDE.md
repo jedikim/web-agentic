@@ -8,36 +8,25 @@
 **v3 핵심**: 4 모듈 + 1 캐시 (Planner → Extractor → Filter → Actor → Executor, Cache 보조)
 **상세 설계**: `docs/new_arch.md` (전체 아키텍처 문서)
 
-## 현재 개발 단계: Week 1-2 — DOM Extractor + Element Filter + TextMatcher
+## 현재 개발 단계: Week 3 — Actor + Executor + ResultVerifier
+
+### 완료된 단계
+- **Week 1-2**: Browser, DOMExtractor, TextMatcher, ElementFilter + 100 tests ✅
 
 ### 이번 단계 목표
-- `src/core/browser.py`: Playwright + CDP 하이브리드 래퍼 (실행=Playwright, 추출=CDP)
-- `src/core/dom_extractor.py`: CDP `DOM.getDocument(depth=-1, pierce=True)` + `Accessibility.getFullAXTree` 병렬 추출
-- `src/core/text_matcher.py`: keyword_weights 기반 다국어 텍스트 매칭 (Snowball Stemmer + mecab-ko + fugashi + jieba)
-- `src/core/element_filter.py`: TextMatcher로 DOMNode 필터링 → ScoredNode 리스트 반환
+- `src/core/actor.py`: 후보 20개를 YAML로 LLM에 전달 → 인덱스+selector+action 출력 → viewport 좌표 계산
+- `src/core/v3_executor.py`: selector 우선 → 실패 시 viewport_xy fallback. 실행만 담당.
+- `src/core/result_verifier.py`: 사후 검증 (URL assertion > DOM assertion > 비전 pHash)
 
-### v3 핵심 데이터 타입 (types.py에 추가)
-```python
-@dataclass
-class DOMNode:
-    node_id: int; tag: str; text: str; attrs: dict[str, str]
-    ax_role: str | None; ax_name: str | None
-
-@dataclass
-class ScoredNode:
-    node: DOMNode; score: float
-
-@dataclass
-class StepPlan:
-    step_index: int; action_type: str; target_description: str
-    keyword_weights: dict[str, float]; target_viewport_xy: tuple[float, float] | None
-    value: str | None; expected_result: str | None
-```
+### 핵심 설계
+- Actor: `candidates YAML → LLM → index + selector → viewport_xy 계산 → Action`
+- Executor: `action.selector → click/fill 시도 → 실패 시 viewport_xy로 좌표 클릭`
+- ResultVerifier: `"ok"/"wrong"/"failed"` 3값 반환. URL→DOM→pHash 순서.
 
 ### 테스트 기준
-- 네이버쇼핑 DOM에서 "검색창" 요소를 keyword_weights={"검색": 1.0, "query": 0.8}로 찾을 수 있는가
-- CDP 추출이 Shadow DOM, iframe을 포함하는가
-- 한국어/영어/일본어 텍스트 매칭이 정확한가
+- Actor가 LLM 응답에서 selector+action 파싱하는가
+- Executor가 selector 실패 시 viewport fallback으로 클릭하는가
+- ResultVerifier가 URL 변경/DOM 존재/pHash 변화를 올바르게 판별하는가
 
 ## 아키텍처 원칙 (v3 — LLM-First)
 
