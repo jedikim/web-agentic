@@ -1,8 +1,6 @@
 """Unit tests for Coordinate Mapper — ``src.vision.coord_mapper``."""
 from __future__ import annotations
 
-import math
-
 import pytest
 
 from src.core.types import ExtractedElement
@@ -11,7 +9,6 @@ from src.vision.coord_mapper import (
     create_coord_mapper,
 )
 from src.vision.yolo_detector import Detection
-
 
 # ── Fixtures ────────────────────────────────────────
 
@@ -135,13 +132,17 @@ class TestFindClosestElement:
         assert result is not None
         assert result.eid == "btn-1"
 
-    def test_finds_second_candidate(self, mapper: CoordMapper, candidates: list[ExtractedElement]) -> None:
+    def test_finds_second_candidate(
+        self, mapper: CoordMapper, candidates: list[ExtractedElement],
+    ) -> None:
         """Point near second candidate returns second candidate."""
         result = mapper.find_closest_element((550, 330), candidates)
         assert result is not None
         assert result.eid == "btn-2"
 
-    def test_finds_third_candidate(self, mapper: CoordMapper, candidates: list[ExtractedElement]) -> None:
+    def test_finds_third_candidate(
+        self, mapper: CoordMapper, candidates: list[ExtractedElement],
+    ) -> None:
         """Point near third candidate returns third candidate."""
         result = mapper.find_closest_element((920, 610), candidates)
         assert result is not None

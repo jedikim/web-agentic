@@ -5,6 +5,9 @@ from __future__ import annotations
 import logging
 
 import uvicorn
+from dotenv import load_dotenv
+
+load_dotenv()  # .env → os.environ (before any module imports)
 
 if __name__ == "__main__":
     logging.basicConfig(

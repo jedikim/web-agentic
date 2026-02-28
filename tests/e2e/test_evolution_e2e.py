@@ -20,11 +20,10 @@ from fastapi import FastAPI
 
 from src.api.dependencies import set_db, set_notifier
 from src.api.routes import evolution, progress, scenarios, versions
-from src.evolution.code_generator import CodeChange, GenerationResult, EvolutionUsage
+from src.evolution.code_generator import CodeChange, EvolutionUsage, GenerationResult
 from src.evolution.db import EvolutionDB
 from src.evolution.notifier import Notifier
 from src.evolution.sandbox import SandboxTestResult
-
 
 # ── Fixtures ─────────────────────────────────────────
 
@@ -158,7 +157,10 @@ async def test_full_evolution_lifecycle(
         resp = await client.get(f"/api/evolution/{run_id}")
         assert resp.status_code == 200
         detail = resp.json()
-        assert detail["status"] == "awaiting_approval", f"Got status: {detail['status']}, error: {detail.get('error_message')}"
+        assert detail["status"] == "awaiting_approval", (
+            f"Got status: {detail['status']}, "
+            f"error: {detail.get('error_message')}"
+        )
         assert detail["branch_name"] == f"evolution/{run_id}"
 
         # Step 6: Check changes were recorded

@@ -6,6 +6,7 @@ Safety: always returns to ``main`` branch in the finally block.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -51,7 +52,7 @@ class Sandbox:
             stdout, stderr = await asyncio.wait_for(
                 proc.communicate(), timeout=timeout,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
             return -1, "", f"Command timed out after {timeout}s"
 
@@ -94,11 +95,13 @@ class Sandbox:
                 if path.exists():
                     path.unlink()
                     modified.append(change.file_path)
-            elif change.change_type in ("modify", "create"):
-                if change.new_content is not None:
-                    path.parent.mkdir(parents=True, exist_ok=True)
-                    path.write_text(change.new_content, encoding="utf-8")
-                    modified.append(change.file_path)
+            elif (
+                change.change_type in ("modify", "create")
+                and change.new_content is not None
+            ):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(change.new_content, encoding="utf-8")
+                modified.append(change.file_path)
         return modified
 
     async def commit_changes(
@@ -160,16 +163,12 @@ class Sandbox:
                 parts = line.split()
                 for i, p in enumerate(parts):
                     if p == "passed" and i > 0:
-                        try:
+                        with contextlib.suppress(ValueError):
                             total += int(parts[i - 1])
-                        except ValueError:
-                            pass
                     if p == "failed" and i > 0:
-                        try:
+                        with contextlib.suppress(ValueError):
                             failed += int(parts[i - 1])
                             total += failed
-                        except ValueError:
-                            pass
 
         return code == 0, output, total, failed
 

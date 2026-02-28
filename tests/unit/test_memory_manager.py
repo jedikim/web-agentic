@@ -1,17 +1,14 @@
 """Unit tests for the 4-layer Memory Manager — ``src.learning.memory_manager``."""
 from __future__ import annotations
 
-import json
 import os
 import time
 from pathlib import Path
-from typing import Any
 
 import pytest
 
-from src.core.types import IMemoryManager, RuleDefinition, RuleMatch
+from src.core.types import RuleDefinition
 from src.learning.memory_manager import MemoryManager, create_memory_manager
-
 
 # ── Fixtures ─────────────────────────────────────────
 
@@ -361,7 +358,7 @@ class TestFactory:
 
     async def test_factory_creates_directories(self, tmp_path: Path) -> None:
         """Factory creates episodes/ and artifacts/ subdirectories."""
-        mgr = await create_memory_manager(str(tmp_path / "fresh"))
+        _ = await create_memory_manager(str(tmp_path / "fresh"))
         assert (tmp_path / "fresh" / "episodes").is_dir()
         assert (tmp_path / "fresh" / "artifacts").is_dir()
 
@@ -422,7 +419,7 @@ class TestEdgeCases:
     def test_data_dir_created_on_init(self, tmp_path: Path) -> None:
         """MemoryManager creates data_dir and subdirectories if missing."""
         deep = tmp_path / "deep" / "nested" / "data"
-        mgr = MemoryManager(data_dir=deep)
+        _ = MemoryManager(data_dir=deep)
         assert deep.exists()
         assert (deep / "episodes").exists()
         assert (deep / "artifacts").exists()

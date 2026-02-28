@@ -17,6 +17,7 @@ from google import genai
 from google.genai import types
 
 from src.evolution.patch_validator import validate_patch, validate_python_syntax
+from src.observability.tracing import trace
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +132,7 @@ class EvolutionCodeGenerator:
         self._model_name = model or DEFAULT_CODE_MODEL
         self.usage = EvolutionUsage()
 
+    @trace(name="evolution-generate-fixes", as_type="generation")
     async def generate_fixes(
         self,
         failure_patterns: list[dict[str, Any]],

@@ -22,9 +22,8 @@ Covers:
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -33,9 +32,7 @@ from src.core.fallback_router import FallbackRouter, create_fallback_router
 from src.core.orchestrator import Orchestrator
 from src.core.rule_engine import RuleEngine
 from src.core.types import (
-    AutomationError,
     CaptchaDetectedError,
-    ClickOptions,
     ExtractedElement,
     FailureCode,
     PageState,
@@ -46,10 +43,8 @@ from src.core.types import (
     SelectorNotFoundError,
     StepContext,
     StepDefinition,
-    StepResult,
     VerifyCondition,
     VerifyResult,
-    WaitCondition,
 )
 from src.core.verifier import Verifier
 from src.learning.memory_manager import MemoryManager
@@ -57,7 +52,6 @@ from src.learning.pattern_db import PatternDB
 from src.learning.rule_promoter import RulePromoter
 from src.workflow.dsl_parser import parse_workflow
 from src.workflow.step_queue import StepQueue
-
 
 # ── Helpers ──────────────────────────────────────────
 
@@ -225,7 +219,8 @@ class TestWorkflowOrchestration:
         """The naver_shopping.yaml parses into 11 StepDefinitions."""
         workflow_path = (
             Path(__file__).resolve().parents[2]
-            / "config"
+            / "tests"
+            / "fixtures"
             / "workflows"
             / "naver_shopping.yaml"
         )

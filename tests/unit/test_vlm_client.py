@@ -9,11 +9,9 @@ import pytest
 from src.core.types import ExtractedElement, PatchData
 from src.vision.vlm_client import (
     VLMClient,
-    UsageStats,
     create_vlm_client,
 )
 from src.vision.yolo_detector import Detection
-
 
 # ── Fixtures ────────────────────────────────────────
 
@@ -254,12 +252,14 @@ class TestFindElement:
         self, client: VLMClient, screenshot_bytes: bytes
     ) -> None:
         """Low confidence find triggers tier-2 escalation."""
-        tier1 = _make_gemini_response(
-            json.dumps({"found": True, "label": "button", "confidence": 0.4, "bbox": [10, 20, 30, 40]})
-        )
-        tier2 = _make_gemini_response(
-            json.dumps({"found": True, "label": "button", "confidence": 0.9, "bbox": [15, 25, 35, 45]})
-        )
+        tier1 = _make_gemini_response(json.dumps({
+            "found": True, "label": "button",
+            "confidence": 0.4, "bbox": [10, 20, 30, 40],
+        }))
+        tier2 = _make_gemini_response(json.dumps({
+            "found": True, "label": "button",
+            "confidence": 0.9, "bbox": [15, 25, 35, 45],
+        }))
         calls = []
 
         def mock_call(model_name, image_bytes, prompt):
@@ -297,12 +297,18 @@ class TestAnalyzeGrid:
         self, client: VLMClient, screenshot_bytes: bytes
     ) -> None:
         """analyze_grid() parses a well-formed JSON array response."""
-        vlm_response = _make_gemini_response(
-            json.dumps([
-                {"index": 0, "label": "shoes", "confidence": 0.9, "relevant": True, "description": "Red sneakers", "reason": "matches intent"},
-                {"index": 1, "label": "hat", "confidence": 0.7, "relevant": False, "description": "Blue hat", "reason": "not shoes"},
-            ])
-        )
+        vlm_response = _make_gemini_response(json.dumps([
+            {
+                "index": 0, "label": "shoes", "confidence": 0.9,
+                "relevant": True, "description": "Red sneakers",
+                "reason": "matches intent",
+            },
+            {
+                "index": 1, "label": "hat", "confidence": 0.7,
+                "relevant": False, "description": "Blue hat",
+                "reason": "not shoes",
+            },
+        ]))
         with patch.object(client, "_call_gemini_vision", return_value=vlm_response):
             results = await client.analyze_grid(screenshot_bytes, "find shoes", cell_count=2)
         assert len(results) == 2
@@ -317,7 +323,10 @@ class TestAnalyzeGrid:
     ) -> None:
         """analyze_grid() makes exactly one API call."""
         vlm_response = _make_gemini_response(
-            json.dumps([{"index": 0, "label": "item", "confidence": 0.5, "relevant": True, "description": "", "reason": ""}])
+            json.dumps([{
+                "index": 0, "label": "item", "confidence": 0.5,
+                "relevant": True, "description": "", "reason": "",
+            }])
         )
         call_count = 0
 

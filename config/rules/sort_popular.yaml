@@ -1,4 +1,5 @@
-# 규칙 예시: 인기순 정렬
+# 인기순 정렬 규칙 예시 — LLM-First v3
+# filter_sort.yaml의 sort_popularity 규칙으로 통합됨. 이 파일은 참고용.
 rule:
   name: "sort_by_popular"
   trigger:
@@ -9,20 +10,20 @@ rule:
 
   strategy:
     - step: "find_sort_ui"
-      method: "E_clickables에서 synonyms 매칭"
-      fallback: "escalate_to_F"
+      method: "LLM이 DOM 후보에서 선택"
+      fallback: "escalate_to_vision"
 
     - step: "click_sort"
-      method: "X.click(matched_eid)"
+      method: "X.click(selected_eid)"
 
     - step: "verify"
       checks:
         - type: "element_selected"
-          selector: "matched_eid"
+          selector: "selected_eid"
         - type: "url_param_exists"
           key: "sort"
         - type: "page_loaded"
-      on_fail: "escalate_to_F"
+      on_fail: "escalate_to_vision"
 
   guardrail:
     max_retries: 3

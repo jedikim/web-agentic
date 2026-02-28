@@ -4,16 +4,14 @@ from __future__ import annotations
 import pytest
 
 from src.core.fallback_router import (
-    FallbackRouter,
-    create_fallback_router,
     _DYNAMIC_LAYOUT_ATTEMPT_THRESHOLD,
     _ESCALATION_CHAINS,
     _ROUTE_TABLE,
+    FallbackRouter,
+    create_fallback_router,
 )
 from src.core.types import (
     AuthRequiredError,
-    AutomationError,
-    BudgetExceededError,
     CaptchaDetectedError,
     FailureCode,
     IFallbackRouter,
@@ -27,7 +25,6 @@ from src.core.types import (
     StepDefinition,
     VisualAmbiguityError,
 )
-
 
 # ── Fixtures ─────────────────────────────────────────
 
@@ -300,7 +297,10 @@ class TestRoute:
         for code in FailureCode:
             plan = router.route(code)
             assert isinstance(plan, RecoveryPlan)
-            assert plan.strategy in {"retry", "escalate_llm", "escalate_vision", "human_handoff", "skip"}
+            assert plan.strategy in {
+                "retry", "escalate_llm", "escalate_vision",
+                "human_handoff", "skip",
+            }
             assert plan.tier in {1, 2, 3}
 
 

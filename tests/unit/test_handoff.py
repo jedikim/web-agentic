@@ -15,7 +15,6 @@ from src.core.handoff import (
     HandoffTimeoutError,
 )
 
-
 # ── Fixtures ─────────────────────────────────────────
 
 

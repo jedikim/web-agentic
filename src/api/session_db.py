@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS session_turns (
     steps_total  INTEGER NOT NULL DEFAULT 0,
     steps_ok     INTEGER NOT NULL DEFAULT 0,
     error_msg    TEXT,
+    result_summary TEXT,
     screenshots  TEXT NOT NULL DEFAULT '[]',
     step_details TEXT NOT NULL DEFAULT '[]',
     started_at   TEXT NOT NULL,
@@ -75,6 +76,13 @@ class SessionDB:
         self._db = await aiosqlite.connect(self._db_path)
         self._db.row_factory = aiosqlite.Row
         await self._db.executescript(_CREATE_TABLES_SQL)
+        # Migrate: add result_summary if missing
+        cursor = await self._db.execute("PRAGMA table_info(session_turns)")
+        cols = {row[1] for row in await cursor.fetchall()}
+        if "result_summary" not in cols:
+            await self._db.execute(
+                "ALTER TABLE session_turns ADD COLUMN result_summary TEXT",
+            )
         await self._db.commit()
 
     async def close(self) -> None:
@@ -284,6 +292,7 @@ class SessionDB:
         steps_total: int = 0,
         steps_ok: int = 0,
         error_msg: str | None = None,
+        result_summary: str | None = None,
         screenshots: list[str] | None = None,
         step_details: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any] | None:
@@ -297,6 +306,7 @@ class SessionDB:
             steps_total: Total steps attempted.
             steps_ok: Steps that succeeded.
             error_msg: Error message if failed.
+            result_summary: Human-readable result summary.
             screenshots: List of screenshot file paths.
             step_details: List of step result dicts.
 
@@ -308,10 +318,11 @@ class SessionDB:
             """UPDATE session_turns SET
                success = ?, cost_usd = ?, tokens_used = ?,
                steps_total = ?, steps_ok = ?, error_msg = ?,
+               result_summary = ?,
                screenshots = ?, step_details = ?, completed_at = ?
                WHERE id = ?""",
             (int(success), cost_usd, tokens_used, steps_total, steps_ok,
-             error_msg, json.dumps(screenshots or []),
+             error_msg, result_summary, json.dumps(screenshots or []),
              json.dumps(step_details or []), now, turn_id),
         )
         await self.db.commit()

@@ -1,9 +1,8 @@
 """Tests for SessionDB — session and turn CRUD operations."""
 from __future__ import annotations
 
-import asyncio
 import tempfile
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -124,9 +123,9 @@ async def test_create_and_complete_turn(db: SessionDB) -> None:
 async def test_get_session_turns(db: SessionDB) -> None:
     """get_session_turns should return all turns ordered by turn_num."""
     session = await db.create_session(headless=True)
-    t1 = await db.create_turn(session["id"], "Step 1")
-    t2 = await db.create_turn(session["id"], "Step 2")
-    t3 = await db.create_turn(session["id"], "Step 3")
+    _ = await db.create_turn(session["id"], "Step 1")
+    _ = await db.create_turn(session["id"], "Step 2")
+    _ = await db.create_turn(session["id"], "Step 3")
 
     turns = await db.get_session_turns(session["id"])
     assert len(turns) == 3
@@ -147,7 +146,7 @@ async def test_expire_idle_sessions(db: SessionDB) -> None:
 
     # Manually set last_activity to 60 minutes ago
     old_time = (
-        datetime.now(timezone.utc) - timedelta(minutes=60)
+        datetime.now(UTC) - timedelta(minutes=60)
     ).isoformat(timespec="seconds")
     await db.db.execute(
         "UPDATE sessions SET last_activity = ? WHERE id = ?",

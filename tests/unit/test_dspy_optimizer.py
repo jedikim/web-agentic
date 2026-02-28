@@ -9,7 +9,6 @@ import pytest
 from src.ai.prompt_manager import PromptManager
 from src.learning.dspy_optimizer import PromptOptimizer
 
-
 # ── Fixtures ────────────────────────────────────────
 
 
@@ -95,7 +94,7 @@ class TestOptimize:
         def metric(exs: list) -> float:
             return 0.99
 
-        version = await optimizer.optimize("plan_steps", examples, metric_fn=metric)
+        _ = await optimizer.optimize("plan_steps", examples, metric_fn=metric)
         history = optimizer.get_optimization_history()
         assert history[-1]["score"] == 0.99
 

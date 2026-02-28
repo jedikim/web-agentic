@@ -1,5 +1,5 @@
-# 필터/정렬 처리 규칙 — Phase 5 Exception Hardening
-# 14 rules for sorting and filtering product/content listings
+# 필터/정렬 처리 규칙 — LLM-First v3 표준화
+# Text/ARIA-based selectors only — no class-name dependencies
 
 rules:
   # ── Sort by Price (Low to High) ────────────────────
@@ -8,7 +8,7 @@ rules:
     trigger:
       intent: "낮은가격순 정렬"
       site_pattern: "*"
-    selector: "option[value*='price_asc'], a:has-text('낮은가격순'), a:has-text('가격낮은순'), button:has-text('Price: Low'), [data-sort='price_asc'], .sort-price-asc, option:has-text('낮은가격순')"
+    selector: "option[value*='price_asc'], a:has-text('낮은가격순'), a:has-text('가격낮은순'), button:has-text('Price: Low'), option:has-text('낮은가격순'), [data-sort='price_asc']"
     method: "click"
     priority: 75
 
@@ -18,7 +18,7 @@ rules:
     trigger:
       intent: "높은가격순 정렬"
       site_pattern: "*"
-    selector: "option[value*='price_desc'], a:has-text('높은가격순'), a:has-text('가격높은순'), button:has-text('Price: High'), [data-sort='price_desc'], .sort-price-desc, option:has-text('높은가격순')"
+    selector: "option[value*='price_desc'], a:has-text('높은가격순'), a:has-text('가격높은순'), button:has-text('Price: High'), option:has-text('높은가격순'), [data-sort='price_desc']"
     method: "click"
     priority: 75
 
@@ -28,7 +28,7 @@ rules:
     trigger:
       intent: "인기순 정렬"
       site_pattern: "*"
-    selector: "option[value*='popular'], a:has-text('인기순'), a:has-text('인기상품'), button:has-text('Popularity'), [data-sort='popular'], .sort-popular, option:has-text('인기순')"
+    selector: "option[value*='popular'], a:has-text('인기순'), a:has-text('인기상품'), button:has-text('Popularity'), option:has-text('인기순'), [data-sort='popular']"
     method: "click"
     priority: 76
 
@@ -38,7 +38,7 @@ rules:
     trigger:
       intent: "최신순 정렬"
       site_pattern: "*"
-    selector: "option[value*='latest'], a:has-text('최신순'), a:has-text('신상품순'), button:has-text('Newest'), [data-sort='latest'], .sort-latest, option:has-text('최신순')"
+    selector: "option[value*='latest'], a:has-text('최신순'), a:has-text('신상품순'), button:has-text('Newest'), option:has-text('최신순'), [data-sort='latest']"
     method: "click"
     priority: 75
 
@@ -48,7 +48,7 @@ rules:
     trigger:
       intent: "평점순 정렬"
       site_pattern: "*"
-    selector: "option[value*='rating'], a:has-text('평점순'), a:has-text('별점순'), button:has-text('Rating'), [data-sort='rating'], .sort-rating, option:has-text('평점순')"
+    selector: "option[value*='rating'], a:has-text('평점순'), a:has-text('별점순'), button:has-text('Rating'), option:has-text('평점순'), [data-sort='rating']"
     method: "click"
     priority: 75
 
@@ -58,7 +58,7 @@ rules:
     trigger:
       intent: "판매순 정렬"
       site_pattern: "*"
-    selector: "option[value*='sales'], a:has-text('판매순'), a:has-text('판매많은순'), button:has-text('Best Selling'), [data-sort='sales'], .sort-sales, option:has-text('판매순')"
+    selector: "option[value*='sales'], a:has-text('판매순'), a:has-text('판매많은순'), button:has-text('Best Selling'), option:has-text('판매순'), [data-sort='sales']"
     method: "click"
     priority: 75
 
@@ -68,7 +68,7 @@ rules:
     trigger:
       intent: "리뷰순 정렬"
       site_pattern: "*"
-    selector: "option[value*='review'], a:has-text('리뷰순'), a:has-text('리뷰많은순'), button:has-text('Most Reviews'), [data-sort='review'], .sort-review, option:has-text('리뷰순')"
+    selector: "option[value*='review'], a:has-text('리뷰순'), a:has-text('리뷰많은순'), button:has-text('Most Reviews'), option:has-text('리뷰순'), [data-sort='review']"
     method: "click"
     priority: 74
 
@@ -78,7 +78,7 @@ rules:
     trigger:
       intent: "가격대 필터"
       site_pattern: "*"
-    selector: ".price-filter, [data-filter='price'], input[name*='price_min'], input[name*='price_max'], .price-range-slider, .filter-price, [class*='price-filter']"
+    selector: "[data-filter='price'], input[name*='price_min'], input[name*='price_max'], label:has-text('가격'), label:has-text('Price')"
     method: "click"
     priority: 72
 
@@ -88,7 +88,7 @@ rules:
     trigger:
       intent: "카테고리 필터"
       site_pattern: "*"
-    selector: ".category-filter, [data-filter='category'], .filter-category, nav.categories a, .category-list a, [class*='category-filter'], .sidebar-categories a"
+    selector: "[data-filter='category'], nav[aria-label*='categor' i] a, nav[aria-label*='카테고리'] a, [role='navigation'] a"
     method: "click"
     priority: 73
 
@@ -98,7 +98,7 @@ rules:
     trigger:
       intent: "브랜드 필터"
       site_pattern: "*"
-    selector: ".brand-filter, [data-filter='brand'], input[name*='brand'], .filter-brand, [class*='brand-filter'], .brand-list input[type='checkbox']"
+    selector: "[data-filter='brand'], input[name*='brand'], label:has-text('브랜드'), label:has-text('Brand')"
     method: "click"
     priority: 72
 
@@ -108,7 +108,7 @@ rules:
     trigger:
       intent: "평점 필터"
       site_pattern: "*"
-    selector: ".rating-filter, [data-filter='rating'], .filter-rating, .star-rating-filter, [class*='rating-filter'], input[name*='rating']"
+    selector: "[data-filter='rating'], input[name*='rating'], label:has-text('평점'), label:has-text('Rating')"
     method: "click"
     priority: 71
 
@@ -118,7 +118,7 @@ rules:
     trigger:
       intent: "배송 필터"
       site_pattern: "*"
-    selector: ".delivery-filter, [data-filter='delivery'], input[name*='delivery'], .filter-shipping, [class*='delivery-filter'], label:has-text('무료배송'), label:has-text('Free Shipping')"
+    selector: "[data-filter='delivery'], input[name*='delivery'], label:has-text('무료배송'), label:has-text('Free Shipping')"
     method: "click"
     priority: 71
 
@@ -128,7 +128,7 @@ rules:
     trigger:
       intent: "색상 필터"
       site_pattern: "*"
-    selector: ".color-filter, [data-filter='color'], .filter-color, .color-swatch, [class*='color-filter'], input[name*='color']"
+    selector: "[data-filter='color'], input[name*='color'], label:has-text('색상'), label:has-text('Color')"
     method: "click"
     priority: 70
 
@@ -138,6 +138,6 @@ rules:
     trigger:
       intent: "사이즈 필터"
       site_pattern: "*"
-    selector: ".size-filter, [data-filter='size'], .filter-size, .size-selector, [class*='size-filter'], input[name*='size'], select[name*='size']"
+    selector: "[data-filter='size'], input[name*='size'], select[name*='size'], label:has-text('사이즈'), label:has-text('Size')"
     method: "click"
     priority: 70

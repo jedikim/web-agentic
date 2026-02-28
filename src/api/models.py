@@ -161,6 +161,7 @@ class ExecuteTurnResponse(BaseModel):
     cost_usd: float
     tokens_used: int
     error_msg: str | None = None
+    result_summary: str | None = None
     screenshots: list[str]
     current_url: str | None = None
     pending_handoffs: int = 0
@@ -190,6 +191,7 @@ class SessionTurnItem(BaseModel):
     steps_total: int
     steps_ok: int
     error_msg: str | None = None
+    result_summary: str | None = None
     started_at: str
     completed_at: str | None = None
 
@@ -243,6 +245,7 @@ class OneShotResponse(BaseModel):
     cost_usd: float
     tokens_used: int
     error_msg: str | None = None
+    result_summary: str | None = None
     screenshots: list[str]
     final_url: str | None = None
 
@@ -270,6 +273,7 @@ class ChatStatusResponse(BaseModel):
     current_step: int
     total_steps: int
     error: str | None = None
+    result_summary: str | None = None
 
 
 class CaptchaSubmitRequest(BaseModel):

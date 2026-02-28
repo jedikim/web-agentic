@@ -10,11 +10,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
 
 from playwright.async_api import Page
 
 from src.core.types import VerifyCondition, VerifyResult
+from src.observability.tracing import trace
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +41,7 @@ class Verifier:
         "network_idle": "_verify_network_idle",
     }
 
+    @trace(name="verify")
     async def verify(self, condition: VerifyCondition, page: Page) -> VerifyResult:
         """Verify a condition against the current page state.
 
@@ -65,7 +66,7 @@ class Verifier:
 
         try:
             return await handler(condition, page, timeout_ms)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return VerifyResult(
                 success=False,
                 message=f"Verification timed out after {timeout_ms}ms: {condition.type}",

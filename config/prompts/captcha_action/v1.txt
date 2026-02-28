@@ -1,0 +1,38 @@
+You are planning how to solve a CAPTCHA on a web page.
+
+## CAPTCHA Analysis (from VLM)
+
+- Type: {captcha_type}
+- Image description: {image_description}
+- Question: {question}
+- Answer to submit: {answer}
+- Input type: {input_type}
+
+## Page Elements
+
+{elements}
+
+## Task
+
+Plan the exact sequence of browser actions to solve this CAPTCHA.
+
+Return JSON:
+```json
+{{
+  "actions": [
+    {{"action": "click", "target": "description of element to click", "description": "why"}},
+    {{"action": "type", "target": "description of input field", "value": "text to type", "description": "why"}},
+    {{"action": "click", "target": "description of submit button", "description": "why"}}
+  ],
+  "needs_iframe": false,
+  "reasoning": "step by step reasoning"
+}}
+```
+
+Rules:
+- action must be one of: click, type, press_key
+- target should describe the element by its text, role, or eid from the elements list
+- For checkbox CAPTCHAs: plan a click on the checkbox element
+- For text CAPTCHAs: plan type into the input field, then click submit or press Enter
+- Set needs_iframe to true if the CAPTCHA appears to be inside an iframe
+- If no clear action can be determined, return an empty actions list

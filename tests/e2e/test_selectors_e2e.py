@@ -22,7 +22,7 @@ class TestSelectorsE2E:
             has_popup=True,
         )
         # Try to match a popup close rule
-        match = rule_engine.match("팝업 닫기", state)
+        _ = rule_engine.match("팝업 닫기", state)
         # Match may or may not work depending on rules configured
         # The test validates the rule engine doesn't crash with real state
 
@@ -32,7 +32,7 @@ class TestSelectorsE2E:
 
         rule_engine = RuleEngine()
         state = PageState(url=page.url, title=await page.title())
-        match = rule_engine.match("검색", state)
+        _ = rule_engine.match("검색", state)
         # Validates rule engine processes real page state without errors
 
     async def test_sort_rule(self, page, fixture_server):
@@ -41,7 +41,7 @@ class TestSelectorsE2E:
 
         rule_engine = RuleEngine()
         state = PageState(url=page.url, title=await page.title())
-        match = rule_engine.match("인기순 정렬", state)
+        _ = rule_engine.match("인기순 정렬", state)
         # Validates rule engine processes real page state without errors
 
     async def test_pagination_rule(self, page, fixture_server):
@@ -50,7 +50,7 @@ class TestSelectorsE2E:
 
         rule_engine = RuleEngine()
         state = PageState(url=page.url, title=await page.title())
-        match = rule_engine.match("다음 페이지", state)
+        _ = rule_engine.match("다음 페이지", state)
         # Validates rule engine processes real page state without errors
 
     async def test_heuristic_finds_buttons(self, page, fixture_server):

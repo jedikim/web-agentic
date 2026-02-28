@@ -1,7 +1,6 @@
 """Unit tests for YOLO detector — ``src.vision.yolo_detector``."""
 from __future__ import annotations
 
-import io
 import struct
 import zlib
 from unittest.mock import MagicMock, patch
@@ -14,9 +13,7 @@ from src.vision.yolo_detector import (
     Detection,
     YOLODetector,
     create_yolo_detector,
-    _LABEL_TO_TYPE,
 )
-
 
 # ── Fixtures ────────────────────────────────────────
 
@@ -256,7 +253,10 @@ class TestDetectElements:
         self, detector: YOLODetector, small_png: bytes
     ) -> None:
         """Unknown YOLO labels default to 'button' element type."""
-        fake = [{"label": "unknown_thing", "confidence": 0.9, "bbox": (10, 20, 30, 40), "class_id": 99}]
+        fake = [{
+            "label": "unknown_thing", "confidence": 0.9,
+            "bbox": (10, 20, 30, 40), "class_id": 99,
+        }]
         with patch.object(detector, "_run_inference", return_value=fake):
             elements = await detector.detect_elements(small_png)
         assert elements[0].type == "button"
@@ -277,10 +277,22 @@ def _make_2x2_grid_metadata() -> GridMetadata:
     """2×2 grid: each cell 100×80, grid 200×160."""
     return GridMetadata(
         cells=[
-            CellInfo(index=0, source_bbox=(0, 0, 200, 160), grid_offset=(0, 0), cell_size=(100, 80)),
-            CellInfo(index=1, source_bbox=(200, 0, 200, 160), grid_offset=(100, 0), cell_size=(100, 80)),
-            CellInfo(index=2, source_bbox=(0, 160, 200, 160), grid_offset=(0, 80), cell_size=(100, 80)),
-            CellInfo(index=3, source_bbox=(200, 160, 200, 160), grid_offset=(100, 80), cell_size=(100, 80)),
+            CellInfo(
+                index=0, source_bbox=(0, 0, 200, 160),
+                grid_offset=(0, 0), cell_size=(100, 80),
+            ),
+            CellInfo(
+                index=1, source_bbox=(200, 0, 200, 160),
+                grid_offset=(100, 0), cell_size=(100, 80),
+            ),
+            CellInfo(
+                index=2, source_bbox=(0, 160, 200, 160),
+                grid_offset=(0, 80), cell_size=(100, 80),
+            ),
+            CellInfo(
+                index=3, source_bbox=(200, 160, 200, 160),
+                grid_offset=(100, 80), cell_size=(100, 80),
+            ),
         ],
         grid_size=(200, 160),
         cols=2,
@@ -292,12 +304,14 @@ class TestDetectOnGrid:
     """Tests for YOLODetector.detect_on_grid()."""
 
     @pytest.mark.asyncio
-    async def test_groups_detections_by_cell(self, detector: YOLODetector, small_png: bytes) -> None:
+    async def test_groups_detections_by_cell(
+        self, detector: YOLODetector, small_png: bytes,
+    ) -> None:
         """Detections are grouped into correct cells by centre point."""
         fake = [
-            {"label": "button", "confidence": 0.9, "bbox": (10, 10, 20, 20), "class_id": 0},   # cell 0
-            {"label": "link", "confidence": 0.8, "bbox": (110, 10, 20, 20), "class_id": 2},     # cell 1
-            {"label": "card", "confidence": 0.7, "bbox": (10, 90, 20, 20), "class_id": 4},      # cell 2
+            {"label": "button", "confidence": 0.9, "bbox": (10, 10, 20, 20), "class_id": 0},
+            {"label": "link", "confidence": 0.8, "bbox": (110, 10, 20, 20), "class_id": 2},
+            {"label": "card", "confidence": 0.7, "bbox": (10, 90, 20, 20), "class_id": 4},
         ]
         meta = _make_2x2_grid_metadata()
         with patch.object(detector, "_run_inference", return_value=fake):
@@ -309,14 +323,18 @@ class TestDetectOnGrid:
         assert 2 in indices
 
     @pytest.mark.asyncio
-    async def test_empty_detections_returns_empty(self, detector: YOLODetector, small_png: bytes) -> None:
+    async def test_empty_detections_returns_empty(
+        self, detector: YOLODetector, small_png: bytes,
+    ) -> None:
         meta = _make_2x2_grid_metadata()
         with patch.object(detector, "_run_inference", return_value=[]):
             results = await detector.detect_on_grid(small_png, meta)
         assert results == []
 
     @pytest.mark.asyncio
-    async def test_multiple_detections_in_same_cell(self, detector: YOLODetector, small_png: bytes) -> None:
+    async def test_multiple_detections_in_same_cell(
+        self, detector: YOLODetector, small_png: bytes,
+    ) -> None:
         """Multiple detections in the same cell are grouped together."""
         fake = [
             {"label": "button", "confidence": 0.9, "bbox": (10, 10, 20, 20), "class_id": 0},
@@ -333,7 +351,9 @@ class TestDetectOnGrid:
         assert len(dets) == 2
 
     @pytest.mark.asyncio
-    async def test_detection_outside_all_cells_ignored(self, detector: YOLODetector, small_png: bytes) -> None:
+    async def test_detection_outside_all_cells_ignored(
+        self, detector: YOLODetector, small_png: bytes,
+    ) -> None:
         """Detections outside grid cells are silently ignored."""
         fake = [
             {"label": "button", "confidence": 0.9, "bbox": (300, 300, 20, 20), "class_id": 0},
@@ -355,14 +375,14 @@ class TestLazyLoading:
         assert detector.is_loaded is False
         assert detector._model is None
 
-    def test_load_model_sets_loaded_flag(self) -> None:
+    def test_load_model_sets_loaded_flag(self) -> None:  # noqa: N802
         """_load_model sets the is_loaded flag."""
         det = YOLODetector()
         with patch("src.vision.yolo_detector.YOLO", create=True) as mock_yolo:
             # Simulate ultralytics import.
             import sys
-            mock_module = MagicMock()
-            mock_module.YOLO = mock_yolo
+            mock_module = MagicMock()  # noqa: N806
+            mock_module.YOLO = mock_yolo  # noqa: N806
             with patch.dict(sys.modules, {"ultralytics": mock_module}):
                 det._load_model()
         assert det.is_loaded is True

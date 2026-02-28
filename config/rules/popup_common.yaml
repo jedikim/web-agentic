@@ -1,5 +1,5 @@
-# 팝업/모달 공통 처리 규칙 — Phase 5 Exception Hardening
-# 15+ rules for common popup/modal/overlay patterns
+# 팝업/모달 공통 처리 규칙 — LLM-First v3 표준화
+# Text/ARIA-based selectors only — no class-name dependencies
 
 rules:
   # ── Cookie Consent ──────────────────────────────────
@@ -8,7 +8,7 @@ rules:
     trigger:
       intent: "쿠키 동의 수락"
       site_pattern: "*"
-    selector: "button[id*='cookie' i][class*='accept' i], button[id*='cookie' i][class*='agree' i], [data-testid*='cookie-accept'], .cookie-consent button.accept, .cookie-banner button.agree, #onetrust-accept-btn-handler, .cc-accept, .cc-btn.cc-dismiss"
+    selector: "button:has-text('Accept'), button:has-text('동의'), button:has-text('Agree'), button:has-text('Allow'), [role='button']:has-text('Accept All'), [role='button']:has-text('모두 동의'), [data-testid*='cookie-accept']"
     method: "click"
     priority: 90
 
@@ -17,7 +17,7 @@ rules:
     trigger:
       intent: "쿠키 배너 닫기"
       site_pattern: "*"
-    selector: ".cookie-close, .cookie-banner .close, [aria-label='Close cookie banner'], .cookie-consent .dismiss, #cookie-close-btn, .js-cookie-close"
+    selector: "[aria-label='Close cookie banner'], button:has-text('Close'), button:has-text('닫기'), [aria-label='Dismiss']"
     method: "click"
     priority: 88
 
@@ -26,7 +26,7 @@ rules:
     trigger:
       intent: "GDPR 동의"
       site_pattern: "*"
-    selector: ".gdpr-consent button[class*='accept'], .gdpr-banner .agree, [data-gdpr='accept'], #gdpr-accept, .privacy-consent .accept-btn, .consent-banner .accept-all"
+    selector: "button:has-text('Accept All'), button:has-text('모두 수락'), [role='button']:has-text('Consent'), [data-gdpr='accept']"
     method: "click"
     priority: 89
 
@@ -36,7 +36,7 @@ rules:
     trigger:
       intent: "뉴스레터 팝업 닫기"
       site_pattern: "*"
-    selector: ".newsletter-popup .close, .newsletter-modal .close-btn, [data-testid='newsletter-close'], .modal-newsletter button.close, .popup-newsletter .dismiss, .email-signup-popup .close"
+    selector: "[role='dialog'] button[aria-label='Close'], [role='dialog'] button:has-text('닫기'), [role='dialog'] button:has-text('Close'), [data-testid='newsletter-close']"
     method: "click"
     priority: 85
 
@@ -45,7 +45,7 @@ rules:
     trigger:
       intent: "뉴스레터 거절"
       site_pattern: "*"
-    selector: ".newsletter-popup .no-thanks, .newsletter-modal [class*='dismiss'], .newsletter-popup [class*='later'], .email-popup .skip"
+    selector: "[role='dialog'] button:has-text('No thanks'), [role='dialog'] button:has-text('나중에'), [role='dialog'] button:has-text('Skip')"
     method: "click"
     priority: 84
 
@@ -55,7 +55,7 @@ rules:
     trigger:
       intent: "나이 확인 팝업 처리"
       site_pattern: "*"
-    selector: ".age-gate button[class*='yes'], .age-verify .confirm, [data-testid='age-gate-yes'], .age-verification .enter, #age-gate-confirm, .age-check .btn-yes"
+    selector: "button:has-text('Yes'), button:has-text('예'), button:has-text('Enter'), button:has-text('확인'), [data-testid='age-gate-yes']"
     method: "click"
     priority: 87
 
@@ -65,7 +65,7 @@ rules:
     trigger:
       intent: "알림 권한 요청 닫기"
       site_pattern: "*"
-    selector: ".notification-prompt .close, .push-notification .dismiss, [data-testid='notification-dismiss'], .notification-bar .no-thanks, .web-push-popup .close, .notification-permission .deny"
+    selector: "button:has-text('No thanks'), button:has-text('나중에'), button:has-text('Deny'), button:has-text('Block'), [data-testid='notification-dismiss']"
     method: "click"
     priority: 86
 
@@ -75,7 +75,7 @@ rules:
     trigger:
       intent: "앱 다운로드 배너 닫기"
       site_pattern: "*"
-    selector: ".smart-banner .close, .app-banner .dismiss, [data-testid='app-banner-close'], .download-app-popup .close, .app-download .close-btn, #smartbanner .sb-close, .branch-banner-close"
+    selector: "[aria-label='Close'], button:has-text('닫기'), button:has-text('Close'), button:has-text('Dismiss'), [data-testid='app-banner-close']"
     method: "click"
     priority: 83
 
@@ -85,7 +85,7 @@ rules:
     trigger:
       intent: "설문 팝업 닫기"
       site_pattern: "*"
-    selector: ".survey-popup .close, .feedback-modal .close, [data-testid='survey-dismiss'], .survey-widget .close-btn, .feedback-popup .dismiss, #QSIFeedbackButton-close"
+    selector: "[role='dialog'] button[aria-label='Close'], [role='dialog'] button:has-text('닫기'), [role='dialog'] button:has-text('Close'), [data-testid='survey-dismiss']"
     method: "click"
     priority: 82
 
@@ -95,7 +95,7 @@ rules:
     trigger:
       intent: "광고 오버레이 닫기"
       site_pattern: "*"
-    selector: ".ad-overlay .close, .interstitial-close, [data-testid='ad-close'], .ad-popup .close-btn, .overlay-ad .dismiss, .modal-ad .close, #ad-close-button, .ad-banner-close"
+    selector: "button[aria-label='Close ad'], button[aria-label='Close'], button:has-text('Skip'), button:has-text('건너뛰기'), [data-testid='ad-close']"
     method: "click"
     priority: 81
 
@@ -105,7 +105,7 @@ rules:
     trigger:
       intent: "채팅 위젯 닫기"
       site_pattern: "*"
-    selector: ".chat-widget .close, .livechat-close, [data-testid='chat-close'], .zendesk-chat .close, .intercom-close, .drift-widget-close, .tawk-min-container .close"
+    selector: "[aria-label='Close chat'], [aria-label='Minimize chat'], button[aria-label='Close'], [data-testid='chat-close']"
     method: "click"
     priority: 75
 
@@ -115,7 +115,7 @@ rules:
     trigger:
       intent: "로그인 권유 팝업 닫기"
       site_pattern: "*"
-    selector: ".login-prompt .close, .signin-modal .close-btn, [data-testid='login-modal-close'], .auth-popup .dismiss, .login-overlay .close, .modal-login .btn-close"
+    selector: "[role='dialog'] button[aria-label='Close'], [role='dialog'] button:has-text('닫기'), [role='dialog'] button:has-text('Close'), [data-testid='login-modal-close']"
     method: "click"
     priority: 80
 
@@ -125,7 +125,7 @@ rules:
     trigger:
       intent: "일반 모달 닫기"
       site_pattern: "*"
-    selector: ".modal .close, .modal-dialog .close, [data-dismiss='modal'], .modal .btn-close, [aria-label='Close'], .overlay .close-button, .popup .close"
+    selector: "[role='dialog'] button[aria-label='Close'], [data-dismiss='modal'], [aria-label='Close'], button:has-text('닫기'), button:has-text('Close')"
     method: "click"
     priority: 70
 
@@ -135,7 +135,7 @@ rules:
     trigger:
       intent: "환영 팝업 닫기"
       site_pattern: "*"
-    selector: ".welcome-popup .close, .onboarding-modal .skip, [data-testid='welcome-dismiss'], .intro-popup .close, .welcome-overlay .dismiss, .first-visit-popup .close"
+    selector: "[role='dialog'] button:has-text('Skip'), [role='dialog'] button:has-text('건너뛰기'), [role='dialog'] button[aria-label='Close'], [data-testid='welcome-dismiss']"
     method: "click"
     priority: 78
 
@@ -145,7 +145,7 @@ rules:
     trigger:
       intent: "프로모션 팝업 닫기"
       site_pattern: "*"
-    selector: ".promo-popup .close, .promotion-modal .close, [data-testid='promo-close'], .event-popup .dismiss, .deal-popup .close-btn, .sale-banner .close"
+    selector: "[role='dialog'] button[aria-label='Close'], [role='dialog'] button:has-text('닫기'), [role='dialog'] button:has-text('Close'), [data-testid='promo-close']"
     method: "click"
     priority: 79
 
@@ -155,6 +155,6 @@ rules:
     trigger:
       intent: "위치 정보 요청 닫기"
       site_pattern: "*"
-    selector: ".location-prompt .close, .geolocation-popup .dismiss, [data-testid='location-dismiss'], .location-modal .deny, .location-banner .close"
+    selector: "button:has-text('Deny'), button:has-text('거부'), button:has-text('Not now'), button:has-text('나중에'), [data-testid='location-dismiss']"
     method: "click"
     priority: 77

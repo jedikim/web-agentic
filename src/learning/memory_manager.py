@@ -18,7 +18,6 @@ Usage::
 from __future__ import annotations
 
 import json
-import os
 import time
 from pathlib import Path
 from typing import Any
@@ -26,7 +25,6 @@ from typing import Any
 import aiosqlite
 
 from src.core.types import RuleDefinition, RuleMatch
-
 
 # ── SQL constants ────────────────────────────────────
 

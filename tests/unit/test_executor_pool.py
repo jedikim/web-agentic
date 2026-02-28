@@ -17,7 +17,6 @@ import pytest
 
 from src.core.executor_pool import ExecutorPool
 
-
 # ── Helpers ──────────────────────────────────────────
 
 

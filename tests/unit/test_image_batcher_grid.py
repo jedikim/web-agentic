@@ -7,11 +7,8 @@ import pytest
 from PIL import Image
 
 from src.vision.image_batcher import (
-    CellInfo,
-    GridMetadata,
     ImageBatcher,
 )
-
 
 # ── Helpers ────────────────────────────────────────
 

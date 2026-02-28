@@ -1,8 +1,7 @@
 """Tests for src.core.human_behavior — human-like interaction simulation."""
 from __future__ import annotations
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -31,8 +30,8 @@ class TestBezierPoints:
         pts1 = _bezier_points((0, 0), (100, 100))
         pts2 = _bezier_points((0, 0), (100, 100))
         # Middle points should differ (random control points)
-        mid1 = pts1[10]
-        mid2 = pts2[10]
+        _ = pts1[10]
+        _ = pts2[10]
         # Very unlikely to be exactly equal due to random control points
         # (but not impossible — just test structure)
         assert len(pts1) == len(pts2)

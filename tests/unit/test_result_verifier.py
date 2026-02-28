@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, PropertyMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -166,6 +166,7 @@ class TestVisionFallback:
     def _make_png(pattern: str = "solid") -> bytes:
         """Create a valid PNG image with distinct patterns."""
         import io
+
         from PIL import Image, ImageDraw
         img = Image.new("RGB", (200, 200), (255, 255, 255))
         draw = ImageDraw.Draw(img)

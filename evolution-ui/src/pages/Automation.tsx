@@ -16,6 +16,7 @@ interface TurnEntry {
   cost_usd: number
   success: boolean
   error_msg: string | null
+  result_summary: string | null
 }
 
 export default function Automation() {
@@ -33,8 +34,37 @@ export default function Automation() {
   const [activeHandoff, setActiveHandoff] = useState<HandoffItem | null>(null)
   const [handoffAction, setHandoffAction] = useState('')
   const [oneShotResult, setOneShotResult] = useState<OneShotResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   const prevScreenshotUrl = useRef<string | null>(null)
+
+  // Load turn history when sessionId changes (including after page refresh)
+  useEffect(() => {
+    if (!sessionId) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const detail = await sessions.get(sessionId)
+        if (cancelled) return
+        const loaded: TurnEntry[] = detail.turns.map((t) => ({
+          turn_num: t.turn_num,
+          intent: t.intent,
+          steps_total: t.steps_total,
+          steps_ok: t.steps_ok,
+          cost_usd: t.cost_usd,
+          success: t.success,
+          error_msg: t.error_msg,
+          result_summary: t.result_summary,
+        }))
+        setTurns(loaded)
+        setTotalCost(loaded.reduce((sum, t) => sum + t.cost_usd, 0))
+        setSessionStatus(detail.status)
+      } catch {
+        // Session might not exist yet or be closed
+      }
+    })()
+    return () => { cancelled = true }
+  }, [sessionId])
 
   const refreshScreenshot = useCallback(async (sid: string) => {
     try {
@@ -88,6 +118,7 @@ export default function Automation() {
   const handleNewSession = async () => {
     setExecuting(true)
     setOneShotResult(null)
+    setError(null)
     try {
       const res = await sessions.create(url || undefined, headless)
       setSessionId(res.session_id)
@@ -97,6 +128,8 @@ export default function Automation() {
       setScreenshotUrl(null)
       setPendingHandoffs([])
     } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setError(`Failed to create session: ${msg}`)
       console.error('Failed to create session:', e)
     } finally {
       setExecuting(false)
@@ -107,6 +140,7 @@ export default function Automation() {
     if (!sessionId || !intent.trim()) return
     setExecuting(true)
     setOneShotResult(null)
+    setError(null)
     try {
       const result: TurnResult = await sessions.turn(sessionId, intent.trim())
       const entry: TurnEntry = {
@@ -117,8 +151,13 @@ export default function Automation() {
         cost_usd: result.cost_usd,
         success: result.success,
         error_msg: result.error_msg,
+        result_summary: result.result_summary,
       }
-      setTurns((prev) => [...prev, entry])
+      setTurns((prev) => {
+        // Avoid duplicate if useEffect already loaded this turn
+        const exists = prev.some((t) => t.turn_num === entry.turn_num)
+        return exists ? prev.map((t) => t.turn_num === entry.turn_num ? entry : t) : [...prev, entry]
+      })
       setTotalCost((prev) => prev + result.cost_usd)
       setIntent('')
 
@@ -135,6 +174,8 @@ export default function Automation() {
         }
       }
     } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setError(`Turn failed: ${msg}`)
       console.error('Turn failed:', e)
     } finally {
       setExecuting(false)
@@ -144,11 +185,14 @@ export default function Automation() {
   const handleOneShotRun = async () => {
     if (!intent.trim()) return
     setExecuting(true)
+    setError(null)
     try {
       const result = await automation.run(intent.trim(), url || undefined, headless)
       setOneShotResult(result)
       setIntent('')
     } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setError(`One-shot run failed: ${msg}`)
       console.error('One-shot run failed:', e)
     } finally {
       setExecuting(false)
@@ -195,12 +239,12 @@ export default function Automation() {
       {/* Input controls */}
       <div className="bg-gray-800/50 border border-gray-700/50 rounded-lg p-4 space-y-3">
         <div className="flex gap-3 items-center">
-          <label className="text-sm text-gray-400 w-12 shrink-0">URL</label>
+          <label className="text-sm text-gray-400 w-24 shrink-0">URL <span className="text-gray-600">(optional)</span></label>
           <input
             type="text"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://example.com"
+            placeholder="Leave empty — LLM will infer from your intent"
             className="flex-1 bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           />
           <div className="flex items-center gap-4 text-sm text-gray-400">
@@ -265,6 +309,19 @@ export default function Automation() {
         </div>
       </div>
 
+      {/* Error banner */}
+      {error && (
+        <div className="flex items-center justify-between bg-red-900/30 border border-red-800 rounded-lg px-4 py-3 text-sm text-red-300">
+          <span>{error}</span>
+          <button
+            onClick={() => setError(null)}
+            className="ml-4 text-red-400 hover:text-red-200 text-lg leading-none"
+          >
+            &times;
+          </button>
+        </div>
+      )}
+
       {/* Session info bar */}
       {sessionId && (
         <div className="flex items-center gap-4 bg-gray-800/50 border border-gray-700/50 rounded-lg px-4 py-3 text-sm">
@@ -305,6 +362,11 @@ export default function Automation() {
             <span>Tokens: {oneShotResult.tokens_used}</span>
             {oneShotResult.final_url && <span>URL: {oneShotResult.final_url}</span>}
           </div>
+          {oneShotResult.result_summary && (
+            <p className="text-sm text-blue-300 mt-2 bg-blue-900/30 rounded px-2 py-1.5 border border-blue-800/50">
+              {oneShotResult.result_summary}
+            </p>
+          )}
           {oneShotResult.error_msg && (
             <p className="text-xs text-red-300">{oneShotResult.error_msg}</p>
           )}
@@ -331,6 +393,11 @@ export default function Automation() {
                     </span>
                   </div>
                   <p className="text-sm text-gray-300 mt-1">{t.intent}</p>
+                  {t.result_summary && (
+                    <p className="text-sm text-blue-300 mt-2 bg-blue-900/30 rounded px-2 py-1.5 border border-blue-800/50">
+                      {t.result_summary}
+                    </p>
+                  )}
                   <div className="flex gap-3 mt-1 text-xs text-gray-500">
                     <span>{t.steps_ok}/{t.steps_total} steps</span>
                     <span>${t.cost_usd.toFixed(4)}</span>

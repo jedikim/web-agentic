@@ -19,10 +19,10 @@ Usage::
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
-from typing import Any, Callable
-
+from collections.abc import Callable
+from datetime import UTC, datetime
 from string import Template
+from typing import Any
 
 from src.ai.prompt_manager import PromptManager
 
@@ -79,7 +79,10 @@ class PromptOptimizer:
                 inp = ex.get("input", "")
                 expected = ex.get("expected_output", "")
                 if inp and expected:
-                    example_hints += f"- Example {i}: For input like '{inp}', produce output similar to '{expected}'\n"
+                    example_hints += (
+                        f"- Example {i}: For input like '{inp}', "
+                        f"produce output similar to '{expected}'\n"
+                    )
             optimized_prompt = current_prompt + example_hints
         else:
             optimized_prompt = current_prompt
@@ -105,7 +108,7 @@ class PromptOptimizer:
                 "prompt_name": prompt_name,
                 "version": new_version,
                 "score": score,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "num_examples": len(examples),
             }
         )

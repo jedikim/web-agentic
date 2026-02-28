@@ -8,7 +8,7 @@ import pytest
 
 from src.core.actor import Actor
 from src.core.browser import Browser
-from src.core.types import Action, DOMNode, ScoredNode, StepPlan
+from src.core.types import DOMNode, ScoredNode, StepPlan
 
 
 def _scored(

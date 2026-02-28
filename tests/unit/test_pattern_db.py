@@ -11,8 +11,7 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 
-from src.learning.pattern_db import PatternDB, Pattern, _generate_pattern_id
-
+from src.learning.pattern_db import Pattern, PatternDB, _generate_pattern_id
 
 # ── Fixtures ────────────────────────────────────────
 
@@ -301,7 +300,7 @@ class TestConcurrent:
             db.record_success("search", "example.com", "#q", "type")
             for _ in range(10)
         ]
-        results = await asyncio.gather(*tasks)
+        _ = await asyncio.gather(*tasks)
         # The last result should have all successes counted
         final = await db.get_pattern("search", "example.com")
         assert final is not None

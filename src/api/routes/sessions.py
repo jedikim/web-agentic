@@ -89,7 +89,14 @@ async def execute_turn(
         raise HTTPException(status_code=404, detail="Session not found") from exc
     except Exception as exc:
         logger.error("Turn execution failed: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        msg = str(exc)
+        if "Missing key inputs" in msg or "api_key" in msg:
+            raise HTTPException(
+                status_code=422,
+                detail="GEMINI_API_KEY environment variable is not set. "
+                       "Set it before starting the server.",
+            ) from exc
+        raise HTTPException(status_code=500, detail=msg) from exc
 
     # Get current session state for URL and handoff count
     session = await mgr._db.get_session(session_id)
@@ -110,6 +117,7 @@ async def execute_turn(
         cost_usd=result["cost_usd"],
         tokens_used=result["tokens_used"],
         error_msg=result.get("error_msg"),
+        result_summary=result.get("result_summary"),
         screenshots=result.get("screenshots", []),
         current_url=current_url,
         pending_handoffs=pending_handoffs,

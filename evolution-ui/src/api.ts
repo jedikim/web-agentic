@@ -9,7 +9,12 @@ async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`${res.status}: ${body}`);
+    let detail = body;
+    try {
+      const parsed = JSON.parse(body);
+      if (parsed.detail) detail = parsed.detail;
+    } catch { /* not JSON, use raw body */ }
+    throw new Error(detail);
   }
   return res.json();
 }
@@ -175,6 +180,7 @@ export interface TurnResult {
   cost_usd: number;
   tokens_used: number;
   error_msg: string | null;
+  result_summary: string | null;
   screenshots: string[];
   current_url: string | null;
   pending_handoffs: number;
@@ -202,6 +208,7 @@ export interface SessionTurn {
   steps_total: number;
   steps_ok: number;
   error_msg: string | null;
+  result_summary: string | null;
   started_at: string;
   completed_at: string | null;
 }
@@ -230,6 +237,7 @@ export interface OneShotResult {
   cost_usd: number;
   tokens_used: number;
   error_msg: string | null;
+  result_summary: string | null;
   screenshots: string[];
   final_url: string | null;
 }

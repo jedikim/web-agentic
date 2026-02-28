@@ -1,5 +1,5 @@
-# 페이지네이션 처리 규칙 — Phase 5 Exception Hardening
-# 12 rules for pagination, load more, infinite scroll, and navigation
+# 페이지네이션 처리 규칙 — LLM-First v3 표준화
+# Text/ARIA-based selectors only — no class-name dependencies
 
 rules:
   # ── Next Page Button ───────────────────────────────
@@ -8,7 +8,7 @@ rules:
     trigger:
       intent: "다음 페이지"
       site_pattern: "*"
-    selector: "a[rel='next'], button[aria-label='Next'], .pagination .next, .pager .next, a:has-text('Next'), a:has-text('다음'), button:has-text('Next'), .pagination-next, [class*='next-page']"
+    selector: "a[rel='next'], button[aria-label='Next'], a:has-text('Next'), a:has-text('다음'), button:has-text('Next'), button:has-text('다음')"
     method: "click"
     priority: 85
 
@@ -18,7 +18,7 @@ rules:
     trigger:
       intent: "이전 페이지"
       site_pattern: "*"
-    selector: "a[rel='prev'], button[aria-label='Previous'], .pagination .prev, .pager .prev, a:has-text('Prev'), a:has-text('이전'), button:has-text('Previous'), .pagination-prev, [class*='prev-page']"
+    selector: "a[rel='prev'], button[aria-label='Previous'], a:has-text('Prev'), a:has-text('이전'), button:has-text('Previous'), button:has-text('이전')"
     method: "click"
     priority: 85
 
@@ -28,7 +28,7 @@ rules:
     trigger:
       intent: "더보기"
       site_pattern: "*"
-    selector: "button:has-text('Load More'), button:has-text('더보기'), button:has-text('더 보기'), a:has-text('Load More'), a:has-text('더보기'), .load-more, .btn-load-more, [class*='load-more'], [data-testid='load-more']"
+    selector: "button:has-text('Load More'), button:has-text('더보기'), button:has-text('더 보기'), a:has-text('Load More'), a:has-text('더보기'), [data-testid='load-more']"
     method: "click"
     priority: 84
 
@@ -38,7 +38,7 @@ rules:
     trigger:
       intent: "더 보기 링크"
       site_pattern: "*"
-    selector: "a:has-text('See More'), a:has-text('더 보기'), a:has-text('View More'), a:has-text('Show More'), .see-more, .view-more, [class*='see-more']"
+    selector: "a:has-text('See More'), a:has-text('더 보기'), a:has-text('View More'), a:has-text('Show More')"
     method: "click"
     priority: 83
 
@@ -48,7 +48,7 @@ rules:
     trigger:
       intent: "무한 스크롤"
       site_pattern: "*"
-    selector: ".infinite-scroll-trigger, .scroll-sentinel, [data-infinite-scroll], .infinite-loader, .scroll-loader, .lazy-load-trigger"
+    selector: "[data-infinite-scroll], [aria-label='Loading more']"
     method: "scroll"
     arguments: ["down", "1000"]
     priority: 82
@@ -59,7 +59,7 @@ rules:
     trigger:
       intent: "페이지 번호 클릭"
       site_pattern: "*"
-    selector: ".pagination a[href], .pagination li a, .pager a, .page-numbers a, [class*='pagination'] a[data-page], .paginate_button a"
+    selector: "nav[aria-label*='pagination' i] a, nav[aria-label*='페이지'] a, [role='navigation'] a[data-page]"
     method: "click"
     priority: 80
 
@@ -69,7 +69,7 @@ rules:
     trigger:
       intent: "다음 화살표 클릭"
       site_pattern: "*"
-    selector: ".arrow-next, .nav-arrow-right, [aria-label='Next page'], button.next-arrow, .pagination .arrow-right, .swiper-button-next, .slick-next, .carousel-next"
+    selector: "[aria-label='Next page'], [aria-label='Next'], button[aria-label='Next']"
     method: "click"
     priority: 81
 
@@ -79,7 +79,7 @@ rules:
     trigger:
       intent: "이전 화살표 클릭"
       site_pattern: "*"
-    selector: ".arrow-prev, .nav-arrow-left, [aria-label='Previous page'], button.prev-arrow, .pagination .arrow-left, .swiper-button-prev, .slick-prev, .carousel-prev"
+    selector: "[aria-label='Previous page'], [aria-label='Previous'], button[aria-label='Previous']"
     method: "click"
     priority: 81
 
@@ -89,7 +89,7 @@ rules:
     trigger:
       intent: "한국어 더보기"
       site_pattern: "*"
-    selector: "button:has-text('더 보기'), a:has-text('더 보기'), button:has-text('더보기'), a:has-text('더보기'), button:has-text('전체보기'), a:has-text('전체보기'), [class*='more-btn']"
+    selector: "button:has-text('더 보기'), a:has-text('더 보기'), button:has-text('더보기'), a:has-text('더보기'), button:has-text('전체보기'), a:has-text('전체보기')"
     method: "click"
     priority: 84
 
@@ -99,7 +99,7 @@ rules:
     trigger:
       intent: "첫 페이지"
       site_pattern: "*"
-    selector: ".pagination .first, a:has-text('First'), a:has-text('처음'), [aria-label='First page'], .page-first"
+    selector: "a:has-text('First'), a:has-text('처음'), [aria-label='First page']"
     method: "click"
     priority: 79
 
@@ -108,7 +108,7 @@ rules:
     trigger:
       intent: "마지막 페이지"
       site_pattern: "*"
-    selector: ".pagination .last, a:has-text('Last'), a:has-text('마지막'), [aria-label='Last page'], .page-last"
+    selector: "a:has-text('Last'), a:has-text('마지막'), [aria-label='Last page']"
     method: "click"
     priority: 79
 
@@ -118,6 +118,6 @@ rules:
     trigger:
       intent: "페이지당 항목 수 변경"
       site_pattern: "*"
-    selector: "select[name*='per_page'], select[name*='pageSize'], select[class*='per-page'], .items-per-page select, [data-testid='page-size'], select[name*='size']"
+    selector: "select[name*='per_page'], select[name*='pageSize'], [data-testid='page-size'], select[name*='size']"
     method: "select"
     priority: 78

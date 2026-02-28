@@ -28,8 +28,8 @@ PATTERN_TYPES = {
     "not_interactable": ["NotInteractable", "not interactable", "disabled"],
     "state_not_changed": ["StateNotChanged", "state", "unchanged"],
     "bot_detected": [
-        "BotDetected", "bot detected", "cloudflare", "access denied",
-        "403 Forbidden", "blocked", "akamai", "perimeterx",
+        "BotDetected", "bot detected", "access denied",
+        "403 Forbidden", "429", "blocked",
     ],
     "navigation_blocked": [
         "NavigationBlocked", "robots.txt", "navigation blocked", "disallowed",
@@ -77,7 +77,10 @@ class FailureAnalyzer:
             new_patterns = await self._analyze_single_result(result)
             patterns.extend(new_patterns)
 
-        logger.info("Detected %d failure pattern(s) from %d failed run(s)", len(patterns), len(failed))
+        logger.info(
+            "Detected %d failure pattern(s) from %d failed run(s)",
+            len(patterns), len(failed),
+        )
         return patterns
 
     async def _analyze_single_result(self, result: dict[str, Any]) -> list[dict[str, Any]]:
@@ -166,7 +169,7 @@ class FailureAnalyzer:
 
                 if timed_out:
                     pattern_type = "timeout"
-                    error_msg = f"Phase timed out"
+                    error_msg = "Phase timed out"
                 elif error:
                     pattern_type = _classify_error(error)
                     error_msg = error[:500]

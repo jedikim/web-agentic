@@ -11,6 +11,8 @@ import logging
 import os
 from typing import Any, Protocol, runtime_checkable
 
+from src.observability.tracing import trace, update_current_observation
+
 logger = logging.getLogger(__name__)
 
 
@@ -44,15 +46,16 @@ class GeminiProvider:
 
     def __init__(
         self,
-        model: str = "gemini-2.0-flash",
+        model: str | None = None,
         api_key: str | None = None,
     ) -> None:
         from google import genai
 
-        self._model = model
+        self._model = model or os.environ.get("GEMINI_FLASH_MODEL", "gemini-3-flash-preview")
         self._api_key = api_key or os.environ.get("GEMINI_API_KEY", "")
         self._client = genai.Client(api_key=self._api_key)
 
+    @trace(name="gemini-generate", as_type="generation")
     async def generate(self, prompt: str, **kwargs: Any) -> str:
         """Generate text from prompt via Gemini API."""
         response = await self._client.aio.models.generate_content(
@@ -60,8 +63,11 @@ class GeminiProvider:
             contents=prompt,
             config=kwargs.get("config"),
         )
-        return response.text or ""
+        text = response.text or ""
+        update_current_observation(model=self._model)
+        return text
 
+    @trace(name="gemini-generate-structured", as_type="generation")
     async def generate_structured(
         self, prompt: str, schema: dict[str, Any], **kwargs: Any
     ) -> dict[str, Any]:
@@ -73,6 +79,7 @@ class GeminiProvider:
         )
         text = response.text or "{}"
         result: dict[str, Any] = json.loads(text)
+        update_current_observation(model=self._model)
         return result
 
     @property
@@ -102,6 +109,7 @@ class OpenAIProvider:
         self._api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
         self._client = openai.AsyncOpenAI(api_key=self._api_key)
 
+    @trace(name="openai-generate", as_type="generation")
     async def generate(self, prompt: str, **kwargs: Any) -> str:
         """Generate text from prompt via OpenAI API."""
         response = await self._client.chat.completions.create(
@@ -110,8 +118,10 @@ class OpenAIProvider:
             temperature=kwargs.get("temperature", 0.1),
             max_tokens=kwargs.get("max_tokens", 2048),
         )
+        update_current_observation(model=self._model)
         return response.choices[0].message.content or ""
 
+    @trace(name="openai-generate-structured", as_type="generation")
     async def generate_structured(
         self, prompt: str, schema: dict[str, Any], **kwargs: Any
     ) -> dict[str, Any]:
@@ -125,6 +135,7 @@ class OpenAIProvider:
         )
         text = response.choices[0].message.content or "{}"
         result: dict[str, Any] = json.loads(text)
+        update_current_observation(model=self._model)
         return result
 
     @property
@@ -155,7 +166,7 @@ def create_provider(
         ValueError: If the provider name is not recognized.
     """
     if provider == "gemini":
-        return GeminiProvider(model=model or "gemini-2.0-flash", api_key=api_key)
+        return GeminiProvider(model=model, api_key=api_key)
     elif provider == "openai":
         return OpenAIProvider(model=model or "gpt-4o", api_key=api_key)
     else:

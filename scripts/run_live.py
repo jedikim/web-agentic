@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import logging
 import sys
 from pathlib import Path
@@ -21,22 +22,23 @@ from pathlib import Path
 # Ensure project root is on path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from src.ai.candidate_filter import create_candidate_filter  # noqa: E402
 from src.ai.llm_planner import create_llm_planner  # noqa: E402
+from src.core.config import load_config  # noqa: E402
 from src.core.executor import create_executor  # noqa: E402
 from src.core.extractor import DOMExtractor  # noqa: E402
+from src.core.fallback_router import FallbackRouter  # noqa: E402
 from src.core.llm_orchestrator import LLMFirstOrchestrator  # noqa: E402
 from src.core.selector_cache import SelectorCache  # noqa: E402
 from src.core.verifier import Verifier  # noqa: E402
+from src.observability.tracing import flush as flush_tracing  # noqa: E402
 
 
 def _create_vlm_client():
     """Create VLM client if dependencies available."""
     try:
         from src.vision.vlm_client import create_vlm_client
-        return create_vlm_client(
-            tier1_model="gemini-2.5-flash",
-            tier2_model="gemini-2.5-pro",
-        )
+        return create_vlm_client()
     except ImportError:
         return None
 
@@ -74,6 +76,11 @@ async def main(intent: str, url: str | None, headless: bool) -> None:
 
     screenshot_dir = Path("data/screenshots")
 
+    # Load engine config and create candidate filter
+    config = load_config()
+    candidate_filter = create_candidate_filter(config.candidate_filter)
+    log.info("Candidate filter: %s", candidate_filter is not None)
+
     orch = LLMFirstOrchestrator(
         executor=executor,
         extractor=extractor,
@@ -83,6 +90,8 @@ async def main(intent: str, url: str | None, headless: bool) -> None:
         screenshot_dir=screenshot_dir,
         yolo_detector=yolo,
         vlm_client=vlm,
+        fallback_router=FallbackRouter(),
+        candidate_filter=candidate_filter,
     )
 
     # Navigate to starting URL if provided
@@ -119,11 +128,10 @@ async def main(intent: str, url: str | None, headless: bool) -> None:
         # Keep browser open for inspection
         if not headless:
             log.info("Browser open for inspection. Press Ctrl+C to close.")
-            try:
+            with contextlib.suppress(KeyboardInterrupt):
                 await asyncio.sleep(30)
-            except KeyboardInterrupt:
-                pass
     finally:
+        flush_tracing()
         await executor.close()
 
 

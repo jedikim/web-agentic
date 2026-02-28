@@ -8,25 +8,21 @@
 **v3 핵심**: 4 모듈 + 1 캐시 (Planner → Extractor → Filter → Actor → Executor, Cache 보조)
 **상세 설계**: `docs/new_arch.md` (전체 아키텍처 문서)
 
-## 현재 개발 단계: Week 3 — Actor + Executor + ResultVerifier
+## 현재 개발 단계: Week 4 — Planner (VLM + Screenshot)
 
 ### 완료된 단계
 - **Week 1-2**: Browser, DOMExtractor, TextMatcher, ElementFilter + 100 tests ✅
+- **Week 3**: Actor, V3Executor, ResultVerifier + 48 tests ✅
 
 ### 이번 단계 목표
-- `src/core/actor.py`: 후보 20개를 YAML로 LLM에 전달 → 인덱스+selector+action 출력 → viewport 좌표 계산
-- `src/core/v3_executor.py`: selector 우선 → 실패 시 viewport_xy fallback. 실행만 담당.
-- `src/core/result_verifier.py`: 사후 검증 (URL assertion > DOM assertion > 비전 pHash)
+- `src/core/planner.py`: VLM 스크린샷 기반 계획 — 장애물 감지 + 스텝 분해 + keyword_weights 생성
+- Gemini Flash VLM 사용 (기존 모델명 유지)
+- 1회 호출로 장애물 확인 + 스텝 분해 동시 처리
 
 ### 핵심 설계
-- Actor: `candidates YAML → LLM → index + selector → viewport_xy 계산 → Action`
-- Executor: `action.selector → click/fill 시도 → 실패 시 viewport_xy로 좌표 클릭`
-- ResultVerifier: `"ok"/"wrong"/"failed"` 3값 반환. URL→DOM→pHash 순서.
-
-### 테스트 기준
-- Actor가 LLM 응답에서 selector+action 파싱하는가
-- Executor가 selector 실패 시 viewport fallback으로 클릭하는가
-- ResultVerifier가 URL 변경/DOM 존재/pHash 변화를 올바르게 판별하는가
+- `check_screen(screenshot)` → ScreenState (장애물 감지)
+- `plan(task, screenshot)` → list[StepPlan] (스텝 분해 + keyword_weights + viewport_xy)
+- 프롬프트: 화면 상태 확인 → 태스크 분해 → keyword_weights + target_viewport_xy 출력
 
 ## 아키텍처 원칙 (v3 — LLM-First)
 

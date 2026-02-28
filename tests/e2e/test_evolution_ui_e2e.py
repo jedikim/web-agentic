@@ -21,7 +21,7 @@ import pytest
 # Skip if playwright not available
 pytest.importorskip("playwright")
 
-from playwright.async_api import async_playwright, Page
+from playwright.async_api import Page, async_playwright
 
 UI_DIR = Path(__file__).resolve().parent.parent.parent / "evolution-ui"
 API_PORT = 18766

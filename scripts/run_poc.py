@@ -31,7 +31,7 @@ sys.path.insert(0, str(_PROJECT_ROOT))
 from src.core.executor import Executor, create_executor  # noqa: E402
 from src.core.executor_pool import ExecutorPool  # noqa: E402
 from src.core.extractor import DOMExtractor  # noqa: E402
-from src.core.fallback_router import FallbackRouter, create_fallback_router  # noqa: E402
+from src.core.fallback_router import create_fallback_router  # noqa: E402
 from src.core.orchestrator import Orchestrator  # noqa: E402
 from src.core.rule_engine import RuleEngine  # noqa: E402
 from src.core.types import StepResult  # noqa: E402
@@ -97,9 +97,9 @@ async def create_engine(
     coord_mapper = None
     if os.environ.get("ENABLE_VISION"):
         try:
-            from src.vision.yolo_detector import create_yolo_detector
-            from src.vision.vlm_client import create_vlm_client
             from src.vision.coord_mapper import CoordMapper
+            from src.vision.vlm_client import create_vlm_client
+            from src.vision.yolo_detector import create_yolo_detector
 
             yolo_detector = create_yolo_detector()
             vlm_client = create_vlm_client()
@@ -303,7 +303,10 @@ def print_summary(all_results: list[dict]) -> None:
 
     for r in all_results:
         if "error" in r:
-            print(f"  {r['iteration']:>4}  {'ERROR':>8}  {'--':>8}  {'--':>8}  {r['wall_time_s']:>7.1f}s")
+            print(
+                f"  {r['iteration']:>4}  {'ERROR':>8}"
+                f"  {'--':>8}  {'--':>8}  {r['wall_time_s']:>7.1f}s"
+            )
         else:
             sr = r.get("success_rate", 0.0)
             print(

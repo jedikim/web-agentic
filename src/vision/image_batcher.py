@@ -74,11 +74,11 @@ def _import_pil() -> Any:
     try:
         from PIL import Image, ImageDraw, ImageFont
         return Image, ImageDraw, ImageFont
-    except ImportError:
+    except ImportError as err:
         raise ImportError(
             "Pillow is required for image processing. "
             "Install it with: pip install pillow>=10.0"
-        )
+        ) from err
 
 
 class ImageBatcher:
@@ -135,7 +135,7 @@ class ImageBatcher:
         if not raw_bytes:
             raise ValueError("Cannot prepare empty screenshot bytes")
 
-        Image, _, _ = _import_pil()
+        Image, _, _ = _import_pil()  # noqa: N806
 
         image = Image.open(io.BytesIO(raw_bytes))
         target_w, target_h = self._target_size
@@ -184,7 +184,7 @@ class ImageBatcher:
         if not images:
             raise ValueError("Cannot create grid from empty image list")
 
-        Image, ImageDraw, _ = _import_pil()
+        Image, ImageDraw, _ = _import_pil()  # noqa: N806
 
         # Limit to max batch size.
         batch = images[: self._max_batch_size]
@@ -258,7 +258,7 @@ class ImageBatcher:
         if not screenshot:
             raise ValueError("Cannot crop from empty screenshot bytes")
 
-        Image, _, _ = _import_pil()
+        Image, _, _ = _import_pil()  # noqa: N806
         image = Image.open(io.BytesIO(screenshot))
         img_w, img_h = image.size
 
@@ -269,6 +269,21 @@ class ImageBatcher:
             y1 = max(0, min(y, img_h))
             x2 = max(0, min(x + w, img_w))
             y2 = max(0, min(y + h, img_h))
+
+            # Skip degenerate crops (zero or near-zero size).
+            if x2 - x1 < 2 or y2 - y1 < 2:
+                logger.warning(
+                    "Skipping degenerate crop region: (%d,%d,%d,%d) "
+                    "-> clamped (%d,%d,%d,%d) on %dx%d image",
+                    x, y, w, h, x1, y1, x2, y2, img_w, img_h,
+                )
+                # Create a small placeholder image.
+                Image_mod = _import_pil()[0]
+                placeholder = Image_mod.new("RGB", (4, 4), (200, 200, 200))
+                buf = io.BytesIO()
+                placeholder.save(buf, format="PNG")
+                crops.append(buf.getvalue())
+                continue
 
             cropped = image.crop((x1, y1, x2, y2))
             buf = io.BytesIO()
@@ -307,7 +322,7 @@ class ImageBatcher:
                 f"({len(source_bboxes)}) length mismatch"
             )
 
-        Image, ImageDraw, _ = _import_pil()
+        Image, ImageDraw, _ = _import_pil()  # noqa: N806
 
         batch = item_images[: self._max_batch_size]
         batch_bboxes = source_bboxes[: self._max_batch_size]
@@ -391,7 +406,7 @@ class ImageBatcher:
         Returns:
             PNG bytes of the annotated screenshot.
         """
-        Image, ImageDraw, _ = _import_pil()
+        Image, ImageDraw, _ = _import_pil()  # noqa: N806
 
         image = Image.open(io.BytesIO(screenshot))
         if image.mode != "RGB":
@@ -467,7 +482,7 @@ def create_grid_from_images(
     Returns:
         Grid image as PNG bytes.
     """
-    Image, _, _ = _import_pil()
+    Image, _, _ = _import_pil()  # noqa: N806
 
     rows = math.ceil(len(images) / columns) if images else 1
     grid_w = columns * cell_width

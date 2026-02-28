@@ -163,7 +163,7 @@ class EvolutionPipeline:
 
             if test_result.overall_passed:
                 # Get diff for review
-                diff = await self._sandbox.get_diff(base="main")
+                await self._sandbox.get_diff(base="main")
                 for change in await self._db.get_evolution_changes(run_id):
                     if not change.get("diff_content"):
                         # Update with actual diff
@@ -184,11 +184,16 @@ class EvolutionPipeline:
                         fail_detail.append(f"Lint: {test_result.lint_output[:200]}")
                     if not test_result.unit_tests_passed:
                         fail_detail.append(
-                            f"Tests: {test_result.unit_tests_failed}/{test_result.unit_tests_total} failed"
+                            f"Tests: {test_result.unit_tests_failed}"
+                            f"/{test_result.unit_tests_total} failed"
                         )
+                    fail_summary = "; ".join(fail_detail)
                     await self._transition(
                         run_id, "failed",
-                        error_message=f"Tests failed after {retry + 1} attempt(s): {'; '.join(fail_detail)}",
+                        error_message=(
+                            f"Tests failed after {retry + 1}"
+                            f" attempt(s): {fail_summary}"
+                        ),
                     )
         finally:
             # Always return to main

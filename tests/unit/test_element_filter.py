@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.core.element_filter import FILTER_SCORE_THRESHOLD, ElementFilter
+from src.core.element_filter import ElementFilter
 from src.core.text_matcher import TextMatcher
 from src.core.types import DOMNode
 

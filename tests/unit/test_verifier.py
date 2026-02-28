@@ -6,13 +6,12 @@ edge-case scenarios using mocked Playwright Page objects.
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock
 
 import pytest
 
-from src.core.types import VerifyCondition, VerifyResult
+from src.core.types import VerifyCondition
 from src.core.verifier import Verifier
-
 
 # ── Helpers ──────────────────────────────────────────
 
@@ -381,7 +380,6 @@ async def test_handler_unexpected_exception(verifier: Verifier) -> None:
 @pytest.mark.asyncio
 async def test_verifier_satisfies_iverifier_protocol() -> None:
     """Verifier class satisfies the IVerifier Protocol structurally."""
-    from src.core.types import IVerifier
 
     v = Verifier()
     # Structural subtyping check — must have async verify(condition, page)

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import io
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from PIL import Image
@@ -10,18 +10,10 @@ from PIL import Image
 from src.core.llm_orchestrator import LLMFirstOrchestrator
 from src.core.types import (
     ExtractedElement,
-    PageState,
-    PatchData,
     StepDefinition,
-    StepResult,
-    VerifyResult,
 )
 from src.vision.batch_vision_pipeline import BatchItemResult, BatchVisionPipeline, BatchVisionResult
-from src.vision.coord_mapper import CoordMapper
-from src.vision.image_batcher import CellInfo, GridMetadata, ImageBatcher
-from src.vision.vlm_client import VLMClient
-from src.vision.yolo_detector import Detection, YOLODetector
-
+from src.vision.image_batcher import CellInfo, GridMetadata
 
 # ── Helpers ────────────────────────────────────────
 
@@ -51,14 +43,23 @@ def _product_candidates(n: int = 4) -> list[ExtractedElement]:
 def _simple_candidates() -> list[ExtractedElement]:
     """Candidates that should NOT trigger batch vision."""
     return [
-        ExtractedElement(eid="btn-login", type="button", text="Login", bbox=(10, 10, 80, 30), visible=True),
-        ExtractedElement(eid="btn-signup", type="button", text="Signup", bbox=(100, 10, 80, 30), visible=True),
+        ExtractedElement(
+            eid="btn-login", type="button", text="Login",
+            bbox=(10, 10, 80, 30), visible=True,
+        ),
+        ExtractedElement(
+            eid="btn-signup", type="button", text="Signup",
+            bbox=(100, 10, 80, 30), visible=True,
+        ),
     ]
 
 
 def _make_batch_result() -> BatchVisionResult:
     meta = GridMetadata(
-        cells=[CellInfo(index=0, source_bbox=(0, 0, 100, 200), grid_offset=(0, 0), cell_size=(100, 80))],
+        cells=[CellInfo(
+            index=0, source_bbox=(0, 0, 100, 200),
+            grid_offset=(0, 0), cell_size=(100, 80),
+        )],
         grid_size=(100, 80), cols=1, rows=1,
     )
     return BatchVisionResult(
@@ -210,8 +211,14 @@ class TestExecuteStepWithBatchVision:
         """Pipeline picks the relevant VLM item with highest confidence."""
         meta = GridMetadata(
             cells=[
-                CellInfo(index=0, source_bbox=(0, 0, 100, 200), grid_offset=(0, 0), cell_size=(100, 80)),
-                CellInfo(index=1, source_bbox=(100, 0, 100, 200), grid_offset=(100, 0), cell_size=(100, 80)),
+                CellInfo(
+                    index=0, source_bbox=(0, 0, 100, 200),
+                    grid_offset=(0, 0), cell_size=(100, 80),
+                ),
+                CellInfo(
+                    index=1, source_bbox=(100, 0, 100, 200),
+                    grid_offset=(100, 0), cell_size=(100, 80),
+                ),
             ],
             grid_size=(200, 80), cols=2, rows=1,
         )

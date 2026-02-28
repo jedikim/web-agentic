@@ -1,8 +1,8 @@
 """LLM Planner — L module for the adaptive web automation engine.
 
-Implements the ``ILLMPlanner`` protocol using the Google Gemini API
-with a tiered model strategy (Flash for speed, Pro for accuracy).
-All outputs are structured patches — never free-form code (P3 principle).
+Implements the ``ILLMPlanner`` protocol using the Google Gemini API.
+Automation runtime uses Flash only — Pro is reserved for coding tasks
+(evolution/code_generator). All outputs are structured patches (P3 principle).
 """
 from __future__ import annotations
 
@@ -20,6 +20,26 @@ from google.genai import types
 from src.ai.llm_provider import ILLMProvider
 from src.ai.prompt_manager import PromptManager
 from src.core.types import ExtractedElement, PatchData, StepDefinition
+from src.observability.tracing import trace, update_current_observation
+
+
+@dataclass(frozen=True)
+class CaptchaAction:
+    """A single action in a CAPTCHA solving plan."""
+
+    action: str  # click, type, press_key
+    target: str = ""  # element description for matching
+    value: str = ""  # text to type or key to press
+    description: str = ""
+
+
+@dataclass(frozen=True)
+class CaptchaActionPlan:
+    """LLM-planned sequence of actions to solve a CAPTCHA."""
+
+    actions: list[CaptchaAction]
+    needs_iframe: bool = False
+    reasoning: str = ""
 
 logger = logging.getLogger(__name__)
 
@@ -70,15 +90,15 @@ class UsageStats:
 class LLMPlanner:
     """LLM-based planner using Google Gemini API.
 
-    Implements the ``ILLMPlanner`` protocol with tiered model escalation:
-    tier1 (Flash) is tried first; if confidence is low or parsing fails,
-    tier2 (Pro) is used as a fallback.
+    Automation runtime uses Flash only. Pro model reference is kept for
+    non-runtime use cases (e.g. evolution code generation) but is never
+    used in plan/select/fix_selector calls.
 
     Args:
         prompt_manager: Prompt template manager.
         api_key: Gemini API key. Falls back to ``GEMINI_API_KEY`` env var.
         tier1_model: Primary (cheaper/faster) model name.
-        tier2_model: Escalation (more capable) model name.
+        tier2_model: Pro model name (retained for non-runtime use).
         provider: Optional LLM provider instance. When set, all API
             calls go through this provider instead of the built-in
             Gemini client.
@@ -114,8 +134,12 @@ class LLMPlanner:
 
     # ── Public API (ILLMPlanner Protocol) ────────────
 
+    @trace(name="llm-plan")
     async def plan(self, instruction: str) -> list[StepDefinition]:
         """Decompose a natural language instruction into automation steps.
+
+        Uses Flash model only — Pro is reserved for coding tasks
+        (evolution/code_generator).
 
         Args:
             instruction: Natural language task description.
@@ -127,47 +151,24 @@ class LLMPlanner:
             "plan_steps", instruction=instruction
         )
 
-        # Tier 1 attempt
         response_text, tokens = await self._call_gemini(prompt, self.tier1_model)
         self.usage.record(self.tier1_model, tokens)
 
-        try:
-            steps, confidence = self._parse_plan_response(response_text)
-            if confidence >= 0.7:
-                return steps
-            logger.info(
-                "Tier1 plan confidence %.2f < 0.7, escalating to tier2",
-                confidence,
-            )
-        except (json.JSONDecodeError, KeyError, ValueError) as exc:
-            logger.warning("Tier1 plan parse failed (%s), escalating to tier2", exc)
-            steps = None
-
-        # Cost guard: skip Tier2 if budget exceeded
-        if self.usage.total_cost_usd >= self._max_cost_usd:
-            logger.warning(
-                "Cost limit $%.4f reached, skipping Tier2 plan escalation",
-                self._max_cost_usd,
-            )
-            if steps is not None:
-                return steps
-            raise ValueError("Tier1 plan parse failed and cost limit reached")
-
-        # Tier 2 escalation
-        self.usage.escalations += 1
-        response_text, tokens = await self._call_gemini(prompt, self.tier2_model)
-        self.usage.record(self.tier2_model, tokens)
-        steps, _ = self._parse_plan_response(response_text)
+        steps, _confidence = self._parse_plan_response(response_text)
         return steps
 
+    @trace(name="llm-select")
     async def select(
-        self, candidates: list[ExtractedElement], intent: str
+        self, candidates: list[ExtractedElement], intent: str,
+        page_context: str = "",
     ) -> PatchData:
         """Select the best element from candidates for a given intent.
 
         Args:
             candidates: List of extracted DOM elements.
             intent: User intent or action description.
+            page_context: Optional page context string (URL, title,
+                visible text, previous action) to help disambiguate.
 
         Returns:
             ``PatchData`` with ``patch_type="selector_fix"`` containing
@@ -178,60 +179,93 @@ class LLMPlanner:
                 {
                     "eid": c.eid,
                     "type": c.type,
-                    "text": c.text,
-                    "role": c.role,
-                    "visible": c.visible,
+                    "text": (c.text or "")[:80],
+                    **({"role": c.role} if c.role else {}),
                 }
                 for c in candidates
             ],
             ensure_ascii=False,
-            indent=2,
+            separators=(",", ":"),
         )
 
         prompt = self.prompt_manager.get_prompt(
-            "select_element", candidates=candidates_json, intent=intent
+            "select_element",
+            candidates=candidates_json,
+            intent=intent,
+            page_context=page_context,
         )
 
-        # Tier 1 attempt
+        # Element selection: Flash only (no Pro escalation).
+        # Escalating to Pro for selection is wasteful — if Flash can't find
+        # the right element in the candidate list, Pro won't do better.
+        # The candidate list quality matters more than the model tier.
         response_text, tokens = await self._call_gemini(prompt, self.tier1_model)
         self.usage.record(self.tier1_model, tokens)
 
         try:
-            patch = self._parse_select_response(response_text)
-            if patch.confidence >= 0.7:
-                return patch
-            logger.info(
-                "Tier1 select confidence %.2f < 0.7, escalating to tier2",
-                patch.confidence,
-            )
+            result = self._parse_select_response(response_text)
         except (json.JSONDecodeError, KeyError, ValueError) as exc:
-            logger.warning(
-                "Tier1 select parse failed (%s), escalating to tier2", exc
-            )
-            patch = None
-
-        # Cost guard: skip Tier2 if budget exceeded
-        if self.usage.total_cost_usd >= self._max_cost_usd:
-            logger.warning(
-                "Cost limit $%.4f reached, skipping Tier2 escalation",
-                self._max_cost_usd,
-            )
-            if patch is not None:
-                return patch
-            # Tier1 parse failed and no budget — return low-confidence fallback
+            logger.warning("Select parse failed (%s), returning empty", exc)
             return PatchData(
                 patch_type="selector_fix",
                 target="",
-                data={"selected_eid": "", "reasoning": "cost limit reached"},
+                data={"selected_eid": "", "reasoning": f"parse error: {exc}"},
                 confidence=0.0,
             )
 
-        # Tier 2 escalation
-        self.usage.escalations += 1
-        response_text, tokens = await self._call_gemini(prompt, self.tier2_model)
-        self.usage.record(self.tier2_model, tokens)
-        return self._parse_select_response(response_text)
+        # Validate that the returned eid matches an actual candidate.
+        # LLMs sometimes hallucinate CSS selectors instead of picking
+        # from the provided candidate list.
+        valid_eids = {c.eid for c in candidates}
+        if result.target in valid_eids:
+            return result
 
+        # Try fuzzy matching: the LLM may have returned a close variant
+        selected = result.target.strip()
+        for c in candidates:
+            if c.eid.strip() == selected:
+                return result
+
+        # LLM returned an invalid eid — find the best candidate by
+        # matching the LLM's reasoning/eid text against candidate text.
+        logger.warning(
+            "LLM select returned invalid eid '%s', "
+            "falling back to text matching from %d candidates",
+            selected, len(candidates),
+        )
+        best_candidate = None
+        best_score = -1
+        import re as _re
+        search_words = _re.findall(r"[\w가-힣]{2,}", selected.lower())
+        if not search_words:
+            search_words = _re.findall(
+                r"[\w가-힣]{2,}",
+                result.data.get("reasoning", "").lower(),
+            )
+        for c in candidates:
+            txt = ((c.text or "") + " " + (c.role or "")).lower()
+            score = sum(1 for w in search_words if w in txt)
+            if score > best_score:
+                best_score = score
+                best_candidate = c
+        if best_candidate and best_score > 0:
+            logger.info(
+                "Recovered: mapped to eid=%s (score=%d)",
+                best_candidate.eid, best_score,
+            )
+            return PatchData(
+                patch_type="selector_fix",
+                target=best_candidate.eid,
+                data={
+                    "selected_eid": best_candidate.eid,
+                    "reasoning": f"recovered from invalid '{selected}'",
+                },
+                confidence=max(0.3, result.confidence * 0.5),
+            )
+
+        return result  # Return as-is, let executor handle the failure
+
+    @trace(name="llm-plan-with-context")
     async def plan_with_context(
         self,
         instruction: str,
@@ -241,6 +275,9 @@ class LLMPlanner:
         attachments: list[dict[str, Any]] | None = None,
     ) -> list[StepDefinition]:
         """Plan with current page context for better LLM decisions.
+
+        Uses Flash model only — Pro is reserved for coding tasks
+        (evolution/code_generator).
 
         Args:
             instruction: Natural language task description.
@@ -272,42 +309,129 @@ class LLMPlanner:
             if not images:
                 images = None
 
-        # Tier 1 attempt
         response_text, tokens = await self._call_gemini(
             prompt, self.tier1_model, images=images,
         )
         self.usage.record(self.tier1_model, tokens)
 
+        steps, _confidence = self._parse_plan_response(response_text)
+        return steps
+
+    async def plan_captcha_action(
+        self, captcha_info: dict[str, str], elements: list[ExtractedElement]
+    ) -> CaptchaActionPlan:
+        """Plan CAPTCHA solving actions using LLM.
+
+        Given VLM analysis results and the current page elements, the LLM
+        decides what sequence of actions (click, type, press_key) to perform.
+
+        Args:
+            captcha_info: Dict with keys from VLM analysis (captcha_type,
+                image_description, question, input_type) and optionally
+                an ``answer`` key from solve_captcha().
+            elements: Extracted DOM elements from the current page.
+
+        Returns:
+            CaptchaActionPlan with ordered actions.
+        """
+        elements_json = json.dumps(
+            [
+                {
+                    "eid": e.eid,
+                    "type": e.type,
+                    "text": (e.text or "")[:80],
+                    **({"role": e.role} if e.role else {}),
+                }
+                for e in elements
+                if e.visible
+            ][:50],
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+
+        prompt = self.prompt_manager.get_prompt(
+            "captcha_action",
+            captcha_type=captcha_info.get("captcha_type", "unknown"),
+            image_description=captcha_info.get("image_description", ""),
+            question=captcha_info.get("question", ""),
+            answer=captcha_info.get("answer", ""),
+            input_type=captcha_info.get("input_type", ""),
+            elements=elements_json,
+        )
+
+        response_text, tokens = await self._call_gemini(prompt, self.tier1_model)
+        self.usage.record(self.tier1_model, tokens)
+
         try:
-            steps, confidence = self._parse_plan_response(response_text)
-            if confidence >= 0.7:
-                return steps
-            logger.info(
-                "Tier1 plan_with_context confidence %.2f < 0.7, escalating",
-                confidence,
+            cleaned = _extract_json(response_text)
+            data = json.loads(cleaned)
+            actions: list[CaptchaAction] = []
+            for a in data.get("actions", []):
+                actions.append(CaptchaAction(
+                    action=a.get("action", "click"),
+                    target=a.get("target", a.get("target_eid", "")),
+                    value=a.get("value", ""),
+                    description=a.get("description", ""),
+                ))
+            return CaptchaActionPlan(
+                actions=actions,
+                needs_iframe=data.get("needs_iframe", False),
+                reasoning=data.get("reasoning", ""),
             )
         except (json.JSONDecodeError, KeyError, ValueError) as exc:
-            logger.warning("Tier1 plan_with_context parse failed (%s), escalating", exc)
-            steps = None
+            logger.warning("Failed to parse captcha action plan: %s", exc)
+            return CaptchaActionPlan(actions=[], reasoning=f"parse error: {exc}")
 
-        # Cost guard: skip Tier2 if budget exceeded
-        if self.usage.total_cost_usd >= self._max_cost_usd:
-            logger.warning(
-                "Cost limit $%.4f reached, skipping Tier2 plan escalation",
-                self._max_cost_usd,
-            )
-            if steps is not None:
-                return steps
-            raise ValueError("Tier1 plan parse failed and cost limit reached")
+    async def extract_structured_data(
+        self, elements: list[ExtractedElement], data_type: str
+    ) -> list[dict[str, Any]]:
+        """Extract structured data from DOM elements using LLM.
 
-        # Tier 2 escalation
-        self.usage.escalations += 1
-        response_text, tokens = await self._call_gemini(
-            prompt, self.tier2_model, images=images,
+        Used as fallback when Schema.org markup is not available.
+        The LLM inspects element text/structure and returns structured items.
+
+        Args:
+            elements: List of extracted DOM elements from the page.
+            data_type: Type of data to extract (e.g. "product", "article").
+
+        Returns:
+            List of dicts with extracted fields (varies by data_type).
+        """
+        elements_json = json.dumps(
+            [
+                {
+                    "eid": e.eid,
+                    "type": e.type,
+                    "text": (e.text or "")[:120],
+                    **({"parent_context": e.parent_context} if e.parent_context else {}),
+                }
+                for e in elements
+                if e.visible and e.text
+            ][:80],
+            ensure_ascii=False,
+            separators=(",", ":"),
         )
-        self.usage.record(self.tier2_model, tokens)
-        steps, _ = self._parse_plan_response(response_text)
-        return steps
+
+        prompt = self.prompt_manager.get_prompt(
+            "extract_products",
+            elements=elements_json,
+            data_type=data_type,
+        )
+
+        response_text, tokens = await self._call_gemini(prompt, self.tier1_model)
+        self.usage.record(self.tier1_model, tokens)
+
+        try:
+            cleaned = _extract_json(response_text)
+            data = json.loads(cleaned)
+            if isinstance(data, dict):
+                data = data.get("items", data.get("products", []))
+            if not isinstance(data, list):
+                return []
+            return [item for item in data if isinstance(item, dict)]
+        except (json.JSONDecodeError, KeyError, ValueError):
+            logger.warning("Failed to parse extract_structured_data response")
+            return []
 
     async def solve_captcha(self, captcha_info: dict[str, str]) -> str:
         """Solve a CAPTCHA given its visual analysis.
@@ -358,6 +482,7 @@ class LLMPlanner:
 
     # ── Internal: Gemini API call ────────────────────
 
+    @trace(name="gemini-api-call", as_type="generation")
     async def _call_gemini(
         self,
         prompt: str,
@@ -412,6 +537,11 @@ class LLMPlanner:
         if tokens_used == 0:
             # Rough approximation: 1 token ≈ 4 characters
             tokens_used = (len(prompt) + len(text)) // 4
+        update_current_observation(
+            model=model,
+            usage_details={"input": tokens_used // 2, "output": tokens_used // 2},
+            metadata={"multimodal": bool(images)},
+        )
         return text, tokens_used
 
     # ── Internal: Response parsing ───────────────────
@@ -468,11 +598,19 @@ class LLMPlanner:
             raw_timeout_ms = s.get("timeout_ms", 10000)
             timeout_ms = max(1, int(raw_timeout_ms))
 
+            # For click/type actions, always clear the selector.
+            # The prompt says "selector: null" but LLMs often ignore this
+            # and guess CSS selectors that fail on real pages.
+            # The orchestrator finds elements from live DOM via LLM select.
+            raw_selector = s.get("selector")
+            if node_type in ("click", "type") and raw_selector:
+                raw_selector = None
+
             step = StepDefinition(
                 step_id=step_id,
                 intent=intent,
                 node_type=node_type,
-                selector=s.get("selector"),
+                selector=raw_selector,
                 arguments=list(s.get("arguments", [])),
                 max_attempts=max_attempts,
                 timeout_ms=timeout_ms,

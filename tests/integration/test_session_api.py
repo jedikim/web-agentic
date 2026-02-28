@@ -17,7 +17,6 @@ from src.api.dependencies import get_session_manager, set_session_manager
 from src.api.routes import run, sessions
 from src.api.session_manager import SessionManager, SessionNotFoundError
 
-
 # ── Mock helpers ─────────────────────────────────────
 
 

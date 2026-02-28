@@ -23,7 +23,7 @@ class TestGeminiProvider:
         with patch("google.genai.Client") as mock_client_cls:
             mock_client_cls.return_value = MagicMock()
             provider = GeminiProvider(api_key="test-key")
-            assert provider.model_name == "gemini-2.0-flash"
+            assert provider.model_name == "gemini-3-flash-preview"
             assert provider.provider_name == "gemini"
 
     def test_custom_model(self) -> None:
@@ -150,5 +150,5 @@ class TestModelRegistry:
     def test_supported_models_populated(self) -> None:
         """SUPPORTED_MODELS contains expected entries."""
         assert "gpt-4o" in SUPPORTED_MODELS
-        assert "gemini-2.0-flash" in SUPPORTED_MODELS
+        assert "gemini-3-flash-preview" in SUPPORTED_MODELS
         assert SUPPORTED_MODELS["gpt-4o"]["provider"] == "openai"

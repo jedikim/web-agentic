@@ -443,10 +443,7 @@ class RuleEngine:
         # appears directly in the user intent.
         pattern_terms = set(norm_pattern.split())
         intent_terms = set(norm_intent.split())
-        if pattern_terms & intent_terms:
-            return True
-
-        return False
+        return bool(pattern_terms & intent_terms)
 
     def _expand_intent_terms(self, norm_intent: str) -> list[str]:
         """Expand intent into additional synonym terms for heuristic matching."""

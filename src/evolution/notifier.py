@@ -6,10 +6,11 @@ Event types: evolution_status, scenario_progress, version_created.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 from collections.abc import AsyncIterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -66,10 +67,8 @@ class Notifier:
         """Signal all subscribers to stop."""
         async with self._lock:
             for q in self._subscribers:
-                try:
+                with contextlib.suppress(asyncio.QueueFull):
                     q.put_nowait(None)
-                except asyncio.QueueFull:
-                    pass
             self._subscribers.clear()
 
     def format_sse(self, evt: SSEEvent) -> str:

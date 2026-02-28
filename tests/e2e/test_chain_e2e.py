@@ -20,7 +20,7 @@ class TestChainE2E:
         verifier = Verifier()
 
         await executor.goto(f"{fixture_server}/search_form.html")
-        state = PageState(url=page.url, title=await page.title())
+        _ = PageState(url=page.url, title=await page.title())
 
         # Try heuristic with extracted elements
         extractor = DOMExtractor()

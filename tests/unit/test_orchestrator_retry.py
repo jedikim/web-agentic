@@ -1,9 +1,7 @@
 """Tests for LLMFirstOrchestrator retry/replanning with FallbackRouter."""
 from __future__ import annotations
 
-import asyncio
-from dataclasses import dataclass
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -67,7 +65,9 @@ def _make_orchestrator(
     if execute_results is not None:
         call_count = {"n": 0}
 
-        async def mock_execute_step(step: StepDefinition) -> StepResult:
+        async def mock_execute_step(
+            step: StepDefinition, page_context: str = "",
+        ) -> StepResult:
             idx = min(call_count["n"], len(execute_results) - 1)
             call_count["n"] += 1
             return execute_results[idx]
@@ -251,7 +251,9 @@ class TestCircuitBreaker:
         )
 
         # Mock both _execute_step_with_retry to always fail
-        async def always_fail(step: object, ps: object) -> StepResult:
+        async def always_fail(
+            step: object, ps: object, previous_action: str = "",
+        ) -> StepResult:
             return fail
         orch._execute_step_with_retry = always_fail  # type: ignore[assignment]
 

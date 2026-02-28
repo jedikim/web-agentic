@@ -1,9 +1,8 @@
 """Tests for SessionManager — session lifecycle and orchestration."""
 from __future__ import annotations
 
-import asyncio
 import tempfile
-from dataclasses import dataclass, field
+from datetime import UTC
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -13,15 +12,13 @@ import pytest_asyncio
 
 from src.api.session_db import SessionDB
 from src.api.session_manager import (
-    LiveSession,
     SessionManager,
     SessionNotFoundError,
 )
-from src.core.handoff import HandoffManager, HandoffReason
+from src.core.handoff import HandoffReason
 from src.core.llm_orchestrator import RunResult
 from src.core.types import StepResult
 from src.evolution.notifier import Notifier
-
 
 # ── Fixtures ─────────────────────────────────────────
 
@@ -172,6 +169,7 @@ async def test_execute_turn(
             "turn_id": result["id"],
             "success": True,
             "cost_usd": 0.005,
+            "result_summary": "",
         },
     )
 
@@ -270,9 +268,9 @@ async def test_cleanup_expires_sessions(
         session_id = session["id"]
 
     # Simulate idle by setting last_activity far in the past
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
     old_time = (
-        datetime.now(timezone.utc) - timedelta(minutes=60)
+        datetime.now(UTC) - timedelta(minutes=60)
     ).isoformat(timespec="seconds")
     await session_db.db.execute(
         "UPDATE sessions SET last_activity = ? WHERE id = ?",

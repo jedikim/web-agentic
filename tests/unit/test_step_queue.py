@@ -9,8 +9,6 @@ Tests verify:
 """
 from __future__ import annotations
 
-import pytest
-
 from src.core.types import StepDefinition
 from src.workflow.step_queue import StepQueue
 

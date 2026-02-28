@@ -127,12 +127,12 @@ class YOLODetector:
         """
         try:
             from ultralytics import YOLO
-        except ImportError:
+        except ImportError as err:
             raise ImportError(
                 "ultralytics is required for YOLO detection. "
                 "Install it with: pip install 'web-agentic[vision]' "
                 "or: pip install ultralytics>=8.2"
-            )
+            ) from err
         self._model = YOLO(self._model_path)
         self._loaded = True
         logger.info("YOLO model loaded from %s", self._model_path)

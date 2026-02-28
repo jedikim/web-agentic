@@ -14,30 +14,24 @@ Tests verify:
 """
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from src.core.orchestrator import Orchestrator
 from src.core.types import (
-    AutomationError,
-    ClickOptions,
     ExtractedElement,
     FailureCode,
     PageState,
     PatchData,
     ProgressEvent,
-    ProgressInfo,
     RecoveryPlan,
     RuleMatch,
     SelectorNotFoundError,
-    StepContext,
     StepDefinition,
-    StepResult,
     VerifyCondition,
     VerifyResult,
 )
-
 
 # ── Fixtures ──────────────────────────────────────────
 
@@ -298,7 +292,7 @@ async def test_verify_failure_triggers_retry(
         max_attempts=2,
         verify_condition=VerifyCondition(type="element_gone", value="#popup"),
     )
-    result = await orchestrator.execute_step(step)
+    _ = await orchestrator.execute_step(step)
 
     # Second attempt's heuristic path should succeed
     # The rule match verify fails, then heuristic path is tried
@@ -682,7 +676,7 @@ async def test_execution_error_captured(
 # ── 11. Step result method tracking ──────────────────
 
 
-async def test_method_R_on_rule_path(
+async def test_method_r_on_rule_path(  # noqa: N802
     orchestrator: Orchestrator,
     mock_rule_engine: MagicMock,
 ) -> None:
@@ -697,7 +691,7 @@ async def test_method_R_on_rule_path(
     assert result.method == "R"
 
 
-async def test_method_L1_on_heuristic_path(
+async def test_method_l1_on_heuristic_path(  # noqa: N802
     orchestrator: Orchestrator,
     mock_rule_engine: MagicMock,
     mock_extractor: AsyncMock,

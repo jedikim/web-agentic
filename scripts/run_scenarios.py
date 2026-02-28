@@ -31,13 +31,6 @@ from pathlib import Path
 # Ensure project root is on path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.ai.llm_planner import create_llm_planner  # noqa: E402
-from src.core.executor import create_executor  # noqa: E402
-from src.core.extractor import DOMExtractor  # noqa: E402
-from src.core.llm_orchestrator import LLMFirstOrchestrator  # noqa: E402
-from src.core.selector_cache import SelectorCache  # noqa: E402
-from src.core.verifier import Verifier  # noqa: E402
-
 from scripts.scenario_reporter import (  # noqa: E402
     write_run_log,
     write_scenario_report,
@@ -49,6 +42,12 @@ from scripts.scenario_types import (  # noqa: E402
     ScenarioResult,
     load_scenarios,
 )
+from src.ai.llm_planner import create_llm_planner  # noqa: E402
+from src.core.executor import create_executor  # noqa: E402
+from src.core.extractor import DOMExtractor  # noqa: E402
+from src.core.llm_orchestrator import LLMFirstOrchestrator  # noqa: E402
+from src.core.selector_cache import SelectorCache  # noqa: E402
+from src.core.verifier import Verifier  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -66,10 +65,7 @@ def _create_vlm_client():
     """Create VLM client if dependencies available."""
     try:
         from src.vision.vlm_client import create_vlm_client
-        return create_vlm_client(
-            tier1_model="gemini-2.5-flash",
-            tier2_model="gemini-2.5-pro",
-        )
+        return create_vlm_client()
     except ImportError:
         return None
 
@@ -176,9 +172,6 @@ async def run_single_scenario(
             if scenario.context:
                 full_intent = f"[맥락: {scenario.context}] {phase.intent}"
 
-            # Update screenshot prefix for this phase
-            original_ss_dir = orch._screenshot_dir
-            # We use the same ss_dir but will rely on step naming
             # The orchestrator names screenshots as step_{N}_{step_id}_{ts}.png
             # We'll rename/move them after the phase to add phase prefix
 
@@ -203,7 +196,7 @@ async def run_single_scenario(
                     sum(1 for sr in run_result.step_results if sr.success),
                     len(run_result.step_results),
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 _rescue_orphaned_screenshots(ss_dir, phase_num)
                 phase_results.append(PhaseResult(
                     phase=phase,

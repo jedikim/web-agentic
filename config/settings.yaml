@@ -136,6 +136,18 @@ adaptive:
   min_successes: 3
   enabled: true
 
+# Candidate filter — 2-stage element reduction
+candidate_filter:
+  stage1:
+    enabled: true
+    max_candidates: 80
+  stage2:
+    enabled: false  # set true after: pip install -e ".[embeddings]"
+    embedder: "fastembed"
+    model: "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    top_k: 10
+    vector_threshold: 15
+
 # Logging
 logging:
   level: "INFO"

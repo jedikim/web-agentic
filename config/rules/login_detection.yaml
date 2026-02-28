@@ -1,5 +1,5 @@
-# 로그인/인증 감지 규칙 — Phase 5 Exception Hardening
-# 12 rules for login, 2FA, OAuth, CAPTCHA, and auth-related patterns
+# 로그인/인증 감지 규칙 — LLM-First v3 표준화
+# HTML standard attributes + ARIA + text-based selectors
 
 rules:
   # ── Login Form Detection ───────────────────────────
@@ -8,7 +8,7 @@ rules:
     trigger:
       intent: "로그인 폼 감지"
       site_pattern: "*"
-    selector: "form[action*='login'], form[action*='signin'], form[id*='login'], form[class*='login'], form[class*='signin'], #loginForm, .login-form, .signin-form"
+    selector: "form[action*='login'], form[action*='signin'], form[id*='login'], input[autocomplete='username'] ~ input[type='password']"
     method: "detect"
     priority: 90
 
@@ -17,7 +17,7 @@ rules:
     trigger:
       intent: "로그인 사용자명 입력"
       site_pattern: "*"
-    selector: "input[name='username'], input[name='email'], input[name='user_id'], input[id*='login-email'], input[type='email'][autocomplete='username'], input[name='login'], input[id*='userId']"
+    selector: "input[name='username'], input[name='email'], input[name='user_id'], input[type='email'][autocomplete='username'], input[name='login'], input[autocomplete='username']"
     method: "type"
     priority: 88
 
@@ -26,7 +26,7 @@ rules:
     trigger:
       intent: "로그인 비밀번호 입력"
       site_pattern: "*"
-    selector: "input[type='password'], input[name='password'], input[name='passwd'], input[id*='password'], input[autocomplete='current-password']"
+    selector: "input[type='password'], input[name='password'], input[autocomplete='current-password']"
     method: "type"
     priority: 88
 
@@ -36,17 +36,17 @@ rules:
     trigger:
       intent: "2단계 인증 감지"
       site_pattern: "*"
-    selector: ".two-factor, .mfa-prompt, [class*='2fa'], [class*='two-step'], input[name='otp'], input[name='totp'], input[name='verification_code'], .two-step-verification, .mfa-challenge"
+    selector: "input[name='otp'], input[name='totp'], input[name='verification_code'], input[autocomplete='one-time-code']"
     method: "detect"
     priority: 95
 
-  # ── OAuth Popup ────────────────────────────────────
+  # ── OAuth Popup (brand names are OK — they're identifiers, not DOM classes) ──
   - name: "login_oauth_popup"
     category: "login"
     trigger:
       intent: "OAuth 로그인 팝업 감지"
       site_pattern: "*"
-    selector: ".oauth-popup, .social-login, button[class*='google-login'], button[class*='facebook-login'], button[class*='kakao-login'], button[class*='naver-login'], .btn-oauth, .social-signin"
+    selector: "button:has-text('Google'), button:has-text('Facebook'), button:has-text('Kakao'), button:has-text('Naver'), button:has-text('Apple'), [data-provider]"
     method: "detect"
     priority: 85
 
@@ -56,7 +56,7 @@ rules:
     trigger:
       intent: "비밀번호 만료 감지"
       site_pattern: "*"
-    selector: ".password-expired, [class*='password-change'], h1:has-text('Password Expired'), h1:has-text('비밀번호 변경'), .force-password-change, .expired-password"
+    selector: "h1:has-text('Password Expired'), h1:has-text('비밀번호 변경'), h2:has-text('Password Expired'), h2:has-text('비밀번호 변경')"
     method: "detect"
     priority: 93
 
@@ -66,49 +66,19 @@ rules:
     trigger:
       intent: "계정 잠금 감지"
       site_pattern: "*"
-    selector: ".account-locked, [class*='account-lock'], h1:has-text('Account Locked'), h1:has-text('계정이 잠겼습니다'), .locked-account, .suspended-account"
+    selector: "h1:has-text('Account Locked'), h1:has-text('계정이 잠겼습니다'), h2:has-text('Account Locked')"
     method: "detect"
     priority: 94
 
-  # ── CAPTCHA Detection (generic) ────────────────────
+  # ── CAPTCHA Detection (generic — no vendor selectors) ──
   - name: "login_captcha_generic"
     category: "login"
     trigger:
       intent: "캡챠 감지"
       site_pattern: "*"
-    selector: ".captcha, [class*='captcha'], [id*='captcha'], img[src*='captcha'], .g-recaptcha, .h-captcha, #captcha-container, [data-sitekey]"
+    selector: "[class*='captcha' i], [id*='captcha' i], [data-sitekey]"
     method: "detect"
     priority: 96
-
-  # ── reCAPTCHA ──────────────────────────────────────
-  - name: "login_recaptcha"
-    category: "login"
-    trigger:
-      intent: "reCAPTCHA 감지"
-      site_pattern: "*"
-    selector: ".g-recaptcha, #recaptcha, [class*='recaptcha'], iframe[src*='recaptcha'], .recaptcha-checkbox, [data-sitekey]"
-    method: "detect"
-    priority: 97
-
-  # ── hCaptcha ───────────────────────────────────────
-  - name: "login_hcaptcha"
-    category: "login"
-    trigger:
-      intent: "hCaptcha 감지"
-      site_pattern: "*"
-    selector: ".h-captcha, [class*='hcaptcha'], iframe[src*='hcaptcha'], #hcaptcha, [data-hcaptcha-sitekey]"
-    method: "detect"
-    priority: 97
-
-  # ── Cloudflare Challenge ───────────────────────────
-  - name: "login_cloudflare_challenge"
-    category: "login"
-    trigger:
-      intent: "Cloudflare 보안 확인 감지"
-      site_pattern: "*"
-    selector: "#cf-challenge-running, .cf-browser-verification, [class*='cloudflare'], #challenge-form, .cf-turnstile, iframe[src*='challenges.cloudflare.com']"
-    method: "detect"
-    priority: 98
 
   # ── Email Verification ─────────────────────────────
   - name: "login_email_verification"
@@ -116,6 +86,6 @@ rules:
     trigger:
       intent: "이메일 인증 요구 감지"
       site_pattern: "*"
-    selector: ".email-verification, [class*='verify-email'], h1:has-text('Verify Your Email'), h1:has-text('이메일 인증'), .verify-email-prompt, .email-confirm"
+    selector: "h1:has-text('Verify Your Email'), h1:has-text('이메일 인증'), h2:has-text('Verify Your Email')"
     method: "detect"
     priority: 92

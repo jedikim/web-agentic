@@ -10,7 +10,6 @@ from fastapi import APIRouter, HTTPException
 from src.api.dependencies import get_db, get_notifier
 from src.api.models import (
     ApproveRejectRequest,
-    EvolutionChangeItem,
     EvolutionRunDetail,
     EvolutionRunSummary,
     EvolutionTriggerRequest,

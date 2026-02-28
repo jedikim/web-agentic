@@ -15,10 +15,11 @@ import json
 import logging
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from src.core.types import ExtractedElement, PatchData
+from src.observability.tracing import trace
 from src.vision.yolo_detector import Detection
 
 logger = logging.getLogger(__name__)
@@ -98,7 +99,11 @@ class VLMClient:
         tier1_model: str | None = None,
         tier2_model: str | None = None,
     ) -> None:
-        self._api_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY", "")
+        self._api_key = (
+            api_key
+            or os.environ.get("GEMINI_API_KEY")
+            or os.environ.get("GOOGLE_API_KEY", "")
+        )
         self._tier1_model = tier1_model or DEFAULT_VLM_FLASH
         self._tier2_model = tier2_model or DEFAULT_VLM_PRO
         self._stats = UsageStats()
@@ -191,6 +196,7 @@ class VLMClient:
         )
         self._stats.estimated_cost_usd += cost
 
+    @trace(name="vlm-select-element", as_type="generation")
     async def select_element(
         self,
         screenshot: bytes,
@@ -243,7 +249,11 @@ class VLMClient:
             parsed = self._parse_selection_response(response2["text"], candidates)
 
         selected_idx = parsed["index"]
-        selected = candidates[selected_idx] if 0 <= selected_idx < len(candidates) else candidates[0]
+        selected = (
+            candidates[selected_idx]
+            if 0 <= selected_idx < len(candidates)
+            else candidates[0]
+        )
 
         return PatchData(
             patch_type="selector_fix",
@@ -258,6 +268,7 @@ class VLMClient:
             confidence=parsed["confidence"],
         )
 
+    @trace(name="vlm-analyze-captcha", as_type="generation")
     async def analyze_captcha(self, screenshot: bytes) -> dict[str, Any]:
         """Analyze a CAPTCHA screenshot using VLM.
 
@@ -402,6 +413,7 @@ class VLMClient:
             for i in range(cell_count)
         ]
 
+    @trace(name="vlm-describe-page", as_type="generation")
     async def describe_page(self, screenshot: bytes) -> str:
         """Describe what's visible on a screenshot.
 
@@ -425,6 +437,7 @@ class VLMClient:
 
         return response["text"]
 
+    @trace(name="vlm-find-element", as_type="generation")
     async def find_element(
         self,
         screenshot: bytes,

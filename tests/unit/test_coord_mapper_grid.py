@@ -6,7 +6,6 @@ import pytest
 from src.vision.coord_mapper import CoordMapper
 from src.vision.image_batcher import CellInfo, GridMetadata
 
-
 # ── Helpers ────────────────────────────────────────
 
 
@@ -14,9 +13,15 @@ def _make_2x2_metadata() -> GridMetadata:
     """Create a 2×2 grid metadata (200×160, cells 100×80 each)."""
     cells = [
         CellInfo(index=0, source_bbox=(0, 0, 200, 160), grid_offset=(0, 0), cell_size=(100, 80)),
-        CellInfo(index=1, source_bbox=(200, 0, 200, 160), grid_offset=(100, 0), cell_size=(100, 80)),
+        CellInfo(
+            index=1, source_bbox=(200, 0, 200, 160),
+            grid_offset=(100, 0), cell_size=(100, 80),
+        ),
         CellInfo(index=2, source_bbox=(0, 160, 200, 160), grid_offset=(0, 80), cell_size=(100, 80)),
-        CellInfo(index=3, source_bbox=(200, 160, 200, 160), grid_offset=(100, 80), cell_size=(100, 80)),
+        CellInfo(
+            index=3, source_bbox=(200, 160, 200, 160),
+            grid_offset=(100, 80), cell_size=(100, 80),
+        ),
     ]
     return GridMetadata(cells=cells, grid_size=(200, 160), cols=2, rows=2)
 

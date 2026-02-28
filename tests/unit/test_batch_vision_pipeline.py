@@ -2,28 +2,26 @@
 from __future__ import annotations
 
 import io
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from PIL import Image
 
 from src.vision.batch_vision_pipeline import (
-    YOLO_MIN_AVG_CONFIDENCE,
-    YOLO_MIN_COVERAGE_RATIO,
-    BatchItemResult,
     BatchVisionPipeline,
-    BatchVisionResult,
 )
 from src.vision.coord_mapper import CoordMapper
 from src.vision.image_batcher import CellInfo, GridMetadata, ImageBatcher
-from src.vision.yolo_detector import Detection, YOLODetector
 from src.vision.vlm_client import VLMClient
-
+from src.vision.yolo_detector import Detection, YOLODetector
 
 # ── Helpers ────────────────────────────────────────
 
 
-def _make_png(w: int = 400, h: int = 320, color: tuple[int, int, int] = (128, 128, 128)) -> bytes:
+def _make_png(
+    w: int = 400, h: int = 320,
+    color: tuple[int, int, int] = (128, 128, 128),
+) -> bytes:
     img = Image.new("RGB", (w, h), color)
     buf = io.BytesIO()
     img.save(buf, format="PNG")
@@ -33,10 +31,22 @@ def _make_png(w: int = 400, h: int = 320, color: tuple[int, int, int] = (128, 12
 def _make_2x2_metadata() -> GridMetadata:
     return GridMetadata(
         cells=[
-            CellInfo(index=0, source_bbox=(0, 0, 200, 160), grid_offset=(0, 0), cell_size=(100, 80)),
-            CellInfo(index=1, source_bbox=(200, 0, 200, 160), grid_offset=(100, 0), cell_size=(100, 80)),
-            CellInfo(index=2, source_bbox=(0, 160, 200, 160), grid_offset=(0, 80), cell_size=(100, 80)),
-            CellInfo(index=3, source_bbox=(200, 160, 200, 160), grid_offset=(100, 80), cell_size=(100, 80)),
+            CellInfo(
+                index=0, source_bbox=(0, 0, 200, 160),
+                grid_offset=(0, 0), cell_size=(100, 80),
+            ),
+            CellInfo(
+                index=1, source_bbox=(200, 0, 200, 160),
+                grid_offset=(100, 0), cell_size=(100, 80),
+            ),
+            CellInfo(
+                index=2, source_bbox=(0, 160, 200, 160),
+                grid_offset=(0, 80), cell_size=(100, 80),
+            ),
+            CellInfo(
+                index=3, source_bbox=(200, 160, 200, 160),
+                grid_offset=(100, 80), cell_size=(100, 80),
+            ),
         ],
         grid_size=(200, 160),
         cols=2,
@@ -73,10 +83,26 @@ def _low_conf_yolo_detections() -> list[tuple[int, list[Detection]]]:
 
 def _vlm_results() -> list[dict]:
     return [
-        {"index": 0, "label": "shoes", "confidence": 0.95, "relevant": True, "description": "Red sneakers", "reason": "matches"},
-        {"index": 1, "label": "hat", "confidence": 0.6, "relevant": False, "description": "Blue hat", "reason": "wrong"},
-        {"index": 2, "label": "shoes", "confidence": 0.88, "relevant": True, "description": "White shoes", "reason": "matches"},
-        {"index": 3, "label": "bag", "confidence": 0.5, "relevant": False, "description": "Leather bag", "reason": "wrong"},
+        {
+            "index": 0, "label": "shoes", "confidence": 0.95,
+            "relevant": True, "description": "Red sneakers",
+            "reason": "matches",
+        },
+        {
+            "index": 1, "label": "hat", "confidence": 0.6,
+            "relevant": False, "description": "Blue hat",
+            "reason": "wrong",
+        },
+        {
+            "index": 2, "label": "shoes", "confidence": 0.88,
+            "relevant": True, "description": "White shoes",
+            "reason": "matches",
+        },
+        {
+            "index": 3, "label": "bag", "confidence": 0.5,
+            "relevant": False, "description": "Leather bag",
+            "reason": "wrong",
+        },
     ]
 
 
@@ -146,11 +172,17 @@ class TestProcessBatch:
 
         pipeline = BatchVisionPipeline(batcher, yolo=yolo, vlm=vlm, coord_mapper=mapper)
 
-        with patch.object(yolo, "detect_on_grid", new_callable=AsyncMock, return_value=_good_yolo_detections()):
-            with patch.object(vlm, "analyze_grid", new_callable=AsyncMock) as mock_vlm:
-                result = await pipeline.process_batch(
-                    screenshot, item_bboxes, "find cheapest product", (400, 320)
-                )
+        with (
+            patch.object(
+                yolo, "detect_on_grid",
+                new_callable=AsyncMock,
+                return_value=_good_yolo_detections(),
+            ),
+            patch.object(vlm, "analyze_grid", new_callable=AsyncMock) as mock_vlm,
+        ):
+            result = await pipeline.process_batch(
+                screenshot, item_bboxes, "find cheapest product", (400, 320)
+            )
 
         assert result.yolo_used is True
         assert result.vlm_used is False
@@ -169,11 +201,19 @@ class TestProcessBatch:
 
         pipeline = BatchVisionPipeline(batcher, yolo=yolo, vlm=vlm, coord_mapper=mapper)
 
-        with patch.object(yolo, "detect_on_grid", new_callable=AsyncMock, return_value=_partial_yolo_detections()):
-            with patch.object(vlm, "analyze_grid", new_callable=AsyncMock, return_value=_vlm_results()):
-                result = await pipeline.process_batch(
-                    screenshot, item_bboxes, "find shoes", (400, 320)
-                )
+        with (
+            patch.object(
+                yolo, "detect_on_grid", new_callable=AsyncMock,
+                return_value=_partial_yolo_detections(),
+            ),
+            patch.object(
+                vlm, "analyze_grid", new_callable=AsyncMock,
+                return_value=_vlm_results(),
+            ),
+        ):
+            result = await pipeline.process_batch(
+                screenshot, item_bboxes, "find shoes", (400, 320)
+            )
 
         assert result.yolo_used is True
         assert result.vlm_used is True
@@ -191,11 +231,19 @@ class TestProcessBatch:
 
         pipeline = BatchVisionPipeline(batcher, yolo=yolo, vlm=vlm, coord_mapper=mapper)
 
-        with patch.object(yolo, "detect_on_grid", new_callable=AsyncMock, return_value=_low_conf_yolo_detections()):
-            with patch.object(vlm, "analyze_grid", new_callable=AsyncMock, return_value=_vlm_results()):
-                result = await pipeline.process_batch(
-                    screenshot, item_bboxes, "find shoes", (400, 320)
-                )
+        with (
+            patch.object(
+                yolo, "detect_on_grid", new_callable=AsyncMock,
+                return_value=_low_conf_yolo_detections(),
+            ),
+            patch.object(
+                vlm, "analyze_grid", new_callable=AsyncMock,
+                return_value=_vlm_results(),
+            ),
+        ):
+            result = await pipeline.process_batch(
+                screenshot, item_bboxes, "find shoes", (400, 320)
+            )
 
         assert result.yolo_used is True
         assert result.vlm_used is True
@@ -212,11 +260,17 @@ class TestProcessBatch:
 
         pipeline = BatchVisionPipeline(batcher, yolo=yolo, vlm=vlm, coord_mapper=mapper)
 
-        with patch.object(yolo, "detect_on_grid", new_callable=AsyncMock) as mock_yolo:
-            with patch.object(vlm, "analyze_grid", new_callable=AsyncMock, return_value=_vlm_results()):
-                result = await pipeline.process_batch(
-                    screenshot, item_bboxes, "find shoes", (400, 320), force_vlm=True
-                )
+        with (
+            patch.object(yolo, "detect_on_grid", new_callable=AsyncMock) as mock_yolo,
+            patch.object(
+                vlm, "analyze_grid", new_callable=AsyncMock,
+                return_value=_vlm_results(),
+            ),
+        ):
+            result = await pipeline.process_batch(
+                screenshot, item_bboxes, "find shoes", (400, 320),
+                force_vlm=True,
+            )
 
         mock_yolo.assert_not_called()
         assert result.yolo_used is False
@@ -250,7 +304,10 @@ class TestProcessBatch:
 
         pipeline = BatchVisionPipeline(batcher, yolo=yolo, coord_mapper=mapper)
 
-        with patch.object(yolo, "detect_on_grid", new_callable=AsyncMock, return_value=_good_yolo_detections()):
+        with patch.object(
+            yolo, "detect_on_grid", new_callable=AsyncMock,
+            return_value=_good_yolo_detections(),
+        ):
             result = await pipeline.process_batch(
                 screenshot, item_bboxes, "find product", (400, 320)
             )
@@ -285,7 +342,15 @@ class TestProcessBatch:
             call_count += 1
             # Return one detection per cell
             return [
-                (i, [Detection(label="card", confidence=0.9, bbox=(cell.grid_offset[0] + 10, cell.grid_offset[1] + 10, 20, 20), class_id=0)])
+                (i, [Detection(
+                    label="card", confidence=0.9,
+                    bbox=(
+                        cell.grid_offset[0] + 10,
+                        cell.grid_offset[1] + 10,
+                        20, 20,
+                    ),
+                    class_id=0,
+                )])
                 for i, cell in enumerate(grid_meta.cells)
             ]
 

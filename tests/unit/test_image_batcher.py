@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 import io
-import struct
-import zlib
 
 import pytest
 from PIL import Image
@@ -14,11 +12,13 @@ from src.vision.image_batcher import (
     create_image_batcher,
 )
 
-
 # ── Fixtures ────────────────────────────────────────
 
 
-def _make_png(width: int = 10, height: int = 10, color: tuple[int, int, int] = (255, 0, 0)) -> bytes:
+def _make_png(
+    width: int = 10, height: int = 10,
+    color: tuple[int, int, int] = (255, 0, 0),
+) -> bytes:
     """Create a minimal valid PNG image of given size and color using PIL."""
     image = Image.new("RGB", (width, height), color)
     output = io.BytesIO()
@@ -91,7 +91,9 @@ class TestPrepareScreenshot:
         img = Image.open(io.BytesIO(result))
         assert img.size == (100, 80)
 
-    def test_prepare_large_image_fits_target(self, small_batcher: ImageBatcher, large_png: bytes) -> None:
+    def test_prepare_large_image_fits_target(
+        self, small_batcher: ImageBatcher, large_png: bytes,
+    ) -> None:
         """Large images are downscaled to fit the target size."""
         result = small_batcher.prepare_screenshot(large_png)
         img = Image.open(io.BytesIO(result))
@@ -110,7 +112,9 @@ class TestPrepareScreenshot:
         assert img.mode == "RGB"
         assert img.size == (100, 80)
 
-    def test_prepare_preserves_rgb_mode(self, small_batcher: ImageBatcher, small_png: bytes) -> None:
+    def test_prepare_preserves_rgb_mode(
+        self, small_batcher: ImageBatcher, small_png: bytes,
+    ) -> None:
         """RGB images remain in RGB mode."""
         result = small_batcher.prepare_screenshot(small_png)
         img = Image.open(io.BytesIO(result))
@@ -155,7 +159,9 @@ class TestCreateGrid:
         with pytest.raises(ValueError, match="empty"):
             batcher.create_grid([])
 
-    def test_grid_exceeds_max_batch_size(self, small_batcher: ImageBatcher, small_png: bytes) -> None:
+    def test_grid_exceeds_max_batch_size(
+        self, small_batcher: ImageBatcher, small_png: bytes,
+    ) -> None:
         """Excess images beyond max_batch_size are dropped."""
         # max_batch_size=4, pass 6 images.
         result = small_batcher.create_grid([small_png] * 6)

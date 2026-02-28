@@ -19,8 +19,8 @@ import logging
 from typing import Any
 
 from src.core.types import (
-    AutomationError,
     AuthRequiredError,
+    AutomationError,
     BotDetectedError,
     CaptchaDetectedError,
     FailureCode,
@@ -33,6 +33,7 @@ from src.core.types import (
     StepContext,
     VisualAmbiguityError,
 )
+from src.observability.tracing import trace
 
 logger = logging.getLogger(__name__)
 
@@ -200,6 +201,7 @@ class FallbackRouter:
 
     # ── Public API (IFallbackRouter Protocol) ────────
 
+    @trace(name="fallback-classify")
     def classify(self, error: Exception, context: StepContext) -> FailureCode:
         """Classify an exception into a ``FailureCode``.
 
@@ -226,6 +228,7 @@ class FallbackRouter:
         code = self._heuristic_classify(error, context)
         return self._maybe_reclassify(code, context)
 
+    @trace(name="fallback-route")
     def route(self, failure: FailureCode) -> RecoveryPlan:
         """Return the primary ``RecoveryPlan`` for a failure code.
 
@@ -352,7 +355,7 @@ class FallbackRouter:
             return FailureCode.CAPTCHA_DETECTED
         if "robots.txt" in msg or "navigation blocked" in msg:
             return FailureCode.NAVIGATION_BLOCKED
-        if any(kw in msg for kw in ("cloudflare", "bot detected", "access denied", "403")):
+        if any(kw in msg for kw in ("bot detected", "access denied", "403", "429")):
             return FailureCode.BOT_DETECTED
 
         # Page-state heuristics.

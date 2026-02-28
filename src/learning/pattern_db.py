@@ -91,7 +91,9 @@ CREATE TABLE IF NOT EXISTS patterns (
 """
 
 _UPSERT_SUCCESS_SQL = """\
-INSERT INTO patterns (pattern_id, intent, site, selector, method, success_count, fail_count, last_used, created, metadata)
+INSERT INTO patterns
+    (pattern_id, intent, site, selector, method,
+     success_count, fail_count, last_used, created, metadata)
 VALUES (?, ?, ?, ?, ?, 1, 0, ?, ?, '{}')
 ON CONFLICT (pattern_id) DO UPDATE SET
     success_count = success_count + 1,
@@ -99,7 +101,9 @@ ON CONFLICT (pattern_id) DO UPDATE SET
 """
 
 _UPSERT_FAILURE_SQL = """\
-INSERT INTO patterns (pattern_id, intent, site, selector, method, success_count, fail_count, last_used, created, metadata)
+INSERT INTO patterns
+    (pattern_id, intent, site, selector, method,
+     success_count, fail_count, last_used, created, metadata)
 VALUES (?, ?, ?, ?, ?, 0, 1, ?, ?, '{}')
 ON CONFLICT (pattern_id) DO UPDATE SET
     fail_count = fail_count + 1,
@@ -107,7 +111,8 @@ ON CONFLICT (pattern_id) DO UPDATE SET
 """
 
 _GET_PATTERN_SQL = """\
-SELECT pattern_id, intent, site, selector, method, success_count, fail_count, last_used, created, metadata
+SELECT pattern_id, intent, site, selector, method,
+       success_count, fail_count, last_used, created, metadata
 FROM patterns
 WHERE intent = ? AND site = ?
 ORDER BY success_count DESC
@@ -115,20 +120,23 @@ LIMIT 1
 """
 
 _GET_PROMOTABLE_SQL = """\
-SELECT pattern_id, intent, site, selector, method, success_count, fail_count, last_used, created, metadata
+SELECT pattern_id, intent, site, selector, method,
+       success_count, fail_count, last_used, created, metadata
 FROM patterns
 WHERE success_count >= ?
   AND CAST(success_count AS REAL) / MAX(CAST(success_count + fail_count AS REAL), 1) >= ?
 """
 
 _LIST_ALL_SQL = """\
-SELECT pattern_id, intent, site, selector, method, success_count, fail_count, last_used, created, metadata
+SELECT pattern_id, intent, site, selector, method,
+       success_count, fail_count, last_used, created, metadata
 FROM patterns
 ORDER BY success_count DESC
 """
 
 _LIST_BY_SITE_SQL = """\
-SELECT pattern_id, intent, site, selector, method, success_count, fail_count, last_used, created, metadata
+SELECT pattern_id, intent, site, selector, method,
+       success_count, fail_count, last_used, created, metadata
 FROM patterns
 WHERE site = ?
 ORDER BY success_count DESC
@@ -149,7 +157,8 @@ LIMIT 1
 _DELETE_SQL = "DELETE FROM patterns WHERE pattern_id = ?"
 
 _GET_BY_ID_SQL = """\
-SELECT pattern_id, intent, site, selector, method, success_count, fail_count, last_used, created, metadata
+SELECT pattern_id, intent, site, selector, method,
+       success_count, fail_count, last_used, created, metadata
 FROM patterns
 WHERE pattern_id = ?
 """

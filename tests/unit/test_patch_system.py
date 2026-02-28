@@ -6,7 +6,6 @@ import pytest
 from src.ai.patch_system import VALID_PATCH_TYPES, PatchSystem
 from src.core.types import PatchData
 
-
 # ── Fixtures ─────────────────────────────────────────
 
 
@@ -390,7 +389,7 @@ class TestConstants:
     def test_all_four_types_present(self) -> None:
         """All four patch types are registered."""
         expected = {"selector_fix", "param_change", "rule_add", "strategy_switch"}
-        assert VALID_PATCH_TYPES == expected
+        assert expected == VALID_PATCH_TYPES
 
     def test_valid_patch_types_immutable(self) -> None:
         """Cannot add to VALID_PATCH_TYPES at runtime."""

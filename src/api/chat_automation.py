@@ -35,6 +35,7 @@ class ChatAutomationState:
     cancel_flag: bool = False
     captcha_future: asyncio.Future[str] | None = None
     error: str | None = None
+    result_summary: str | None = None
     image_paths: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -107,6 +108,7 @@ class ChatAutomationService:
                     RunStatus.COMPLETED if result.get("success", False)
                     else RunStatus.FAILED
                 )
+                state.result_summary = result.get("result_summary")
             else:
                 state.status = RunStatus.COMPLETED
         except asyncio.CancelledError:
@@ -181,6 +183,7 @@ class ChatAutomationService:
             "current_step": state.current_step,
             "total_steps": state.total_steps,
             "error": state.error,
+            "result_summary": state.result_summary,
         }
 
     def _get_state(self, run_id: str) -> ChatAutomationState:

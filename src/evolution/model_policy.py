@@ -8,8 +8,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-DEFAULT_CODING_MODEL = "gemini-3.1-pro-preview"
-DEFAULT_AUTOMATION_MODEL = "gemini-3-flash-preview"
+DEFAULT_CODING_MODEL = os.environ.get("GEMINI_PRO_MODEL", "gemini-3.1-pro-preview")
+DEFAULT_AUTOMATION_MODEL = os.environ.get("GEMINI_FLASH_MODEL", "gemini-3-flash-preview")
 
 
 @dataclass(frozen=True)

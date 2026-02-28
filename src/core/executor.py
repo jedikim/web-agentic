@@ -202,6 +202,22 @@ class Executor:
         except PlaywrightError as err:
             raise _map_playwright_error(err, selector) from err
 
+    async def hover(self, selector: str, timeout_ms: int = 5000) -> None:
+        """Hover over an element identified by a CSS selector.
+
+        Args:
+            selector: CSS selector for the target element.
+            timeout_ms: Maximum time to wait for the element.
+
+        Raises:
+            SelectorNotFoundError: If the element is not found within timeout.
+        """
+        try:
+            logger.debug("Hovering %s", selector)
+            await self._page.hover(selector, timeout=timeout_ms)
+        except PlaywrightError as err:
+            raise _map_playwright_error(err, selector) from err
+
     async def press_key(self, key: str) -> None:
         """Press a keyboard key.
 

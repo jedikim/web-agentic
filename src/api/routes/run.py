@@ -24,7 +24,14 @@ async def oneshot_run(req: OneShotRequest) -> OneShotResponse:
         )
     except Exception as exc:
         logger.error("One-shot run failed: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        msg = str(exc)
+        if "Missing key inputs" in msg or "api_key" in msg:
+            raise HTTPException(
+                status_code=422,
+                detail="GEMINI_API_KEY environment variable is not set. "
+                       "Set it before starting the server.",
+            ) from exc
+        raise HTTPException(status_code=500, detail=msg) from exc
 
     return OneShotResponse(
         success=result["success"],
@@ -33,6 +40,7 @@ async def oneshot_run(req: OneShotRequest) -> OneShotResponse:
         cost_usd=result["cost_usd"],
         tokens_used=result["tokens_used"],
         error_msg=result.get("error_msg"),
+        result_summary=result.get("result_summary"),
         screenshots=result.get("screenshots", []),
         final_url=None,
     )

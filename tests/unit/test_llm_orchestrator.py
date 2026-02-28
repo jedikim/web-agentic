@@ -1,8 +1,9 @@
 """Tests for LLMFirstOrchestrator — LLM-driven automation loop."""
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from src.core.llm_orchestrator import LLMFirstOrchestrator, RunResult
+import pytest
+
+from src.core.llm_orchestrator import LLMFirstOrchestrator
 from src.core.selector_cache import CacheHit
 from src.core.types import (
     ExtractedElement,
@@ -140,7 +141,7 @@ async def test_screenshots_saved(
         cache=mock_cache,
         screenshot_dir=ss_dir,
     )
-    result = await orch.run("노트북 검색")
+    _ = await orch.run("노트북 검색")
     assert ss_dir.exists()
     pngs = list(ss_dir.glob("*.png"))
     assert len(pngs) >= 1
@@ -170,6 +171,74 @@ async def test_goto_step_no_llm_select(
     assert result.success
     assert result.step_results[0].method == "GOTO"
     mock_planner.select.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_page_context_passed_to_select(
+    mock_executor, mock_extractor, mock_planner, mock_verifier, mock_cache, tmp_path
+):
+    """LLM select receives page context (URL, title, visible text, previous action)."""
+    # Two-step plan: goto then click — the click step should get page context
+    mock_planner.plan_with_context.return_value = [
+        StepDefinition(
+            step_id="s1",
+            intent="네이버 쇼핑으로 이동",
+            node_type="goto",
+            arguments=["https://shopping.naver.com"],
+        ),
+        StepDefinition(
+            step_id="s2",
+            intent="스포츠 메뉴 클릭",
+            node_type="click",
+        ),
+    ]
+    mock_planner._call_gemini = AsyncMock(
+        return_value=('{"complete": true}', 50),
+    )
+    mock_planner.usage = MagicMock(total_tokens=100, total_cost_usd=0.001)
+
+    orch = LLMFirstOrchestrator(
+        executor=mock_executor,
+        extractor=mock_extractor,
+        planner=mock_planner,
+        verifier=mock_verifier,
+        cache=mock_cache,
+        screenshot_dir=tmp_path / "screenshots",
+    )
+    await orch.run("스포츠 카테고리 방문")
+
+    # select() should have been called with page_context keyword
+    if mock_planner.select.called:
+        _, kwargs = mock_planner.select.call_args
+        assert "page_context" in kwargs
+        ctx = kwargs["page_context"]
+        # Should contain URL and title from mock_extractor's PageState
+        assert "shopping.naver.com" in ctx
+        assert "네이버쇼핑" in ctx
+
+
+@pytest.mark.asyncio
+async def test_build_page_context():
+    """_build_page_context produces expected format."""
+    ps = PageState(
+        url="https://example.com/sports",
+        title="Sports Page",
+        visible_text="Jackets Shoes Hats\nMore items here",
+    )
+    ctx = LLMFirstOrchestrator._build_page_context(ps, "Clicked Sports menu")
+    assert "Page context:" in ctx
+    assert "- URL: https://example.com/sports" in ctx
+    assert "- Title: Sports Page" in ctx
+    assert "- Visible text: Jackets Shoes Hats" in ctx
+    assert "- Previous action: Clicked Sports menu" in ctx
+
+
+@pytest.mark.asyncio
+async def test_build_page_context_empty():
+    """_build_page_context returns empty string when no useful info."""
+    ps = PageState(url="", title="")
+    ctx = LLMFirstOrchestrator._build_page_context(ps)
+    assert ctx == ""
 
 
 @pytest.mark.asyncio

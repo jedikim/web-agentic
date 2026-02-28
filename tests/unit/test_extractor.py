@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from src.core.extractor import DOMExtractor, _MAX_VISIBLE_TEXT
+from src.core.extractor import _MAX_VISIBLE_TEXT, DOMExtractor
 from src.core.types import ExtractedElement, PageState, ProductData
 
 

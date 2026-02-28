@@ -28,7 +28,7 @@ class TestLiveSites:
     async def test_example_com_dom_extraction(self, page):
         await page.goto("https://example.com")
         extractor = DOMExtractor()
-        clickables = await extractor.extract_clickables(page)
+        _ = await extractor.extract_clickables(page)
         state = await extractor.extract_state(page)
         assert state.url.startswith("https://example.com")
         assert state.title != ""

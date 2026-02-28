@@ -5,14 +5,13 @@ record_step_result, and rule registration.
 """
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from src.core.types import RuleDefinition, StepResult
 from src.learning.pattern_db import Pattern, PatternDB
 from src.learning.rule_promoter import RulePromoter, _infer_category
-
 
 # ── Fixtures ────────────────────────────────────────
 

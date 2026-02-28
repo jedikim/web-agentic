@@ -7,12 +7,10 @@ from pathlib import Path
 import pytest
 
 from src.workflow.dsl_parser import (
-    DSLValidationError,
     VALID_NODE_TYPES,
+    DSLValidationError,
     parse_workflow,
 )
-from src.core.types import StepDefinition, VerifyCondition
-
 
 # ── Helpers ──────────────────────────────────────────
 

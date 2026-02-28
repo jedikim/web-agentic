@@ -20,7 +20,6 @@ from src.api.routes import evolution, progress, scenarios, versions
 from src.evolution.db import EvolutionDB
 from src.evolution.notifier import Notifier
 
-
 # ── Test App (no lifespan — we manage DI manually) ───
 
 

@@ -3,11 +3,11 @@ from __future__ import annotations
 
 import os
 import tempfile
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from src.evolution.code_generator import CodeChange, GenerationResult, EvolutionUsage
+from src.evolution.code_generator import CodeChange, EvolutionUsage, GenerationResult
 from src.evolution.db import EvolutionDB
 from src.evolution.notifier import Notifier
 from src.evolution.pipeline import EvolutionPipeline
@@ -145,16 +145,21 @@ async def test_execute_success_to_awaiting(
         unit_tests_total=100, unit_tests_failed=0,
     )
 
-    with patch.object(pipeline._analyzer, "get_top_patterns", new_callable=AsyncMock) as mock_top, \
-         patch.object(pipeline._generator, "generate_fixes", new_callable=AsyncMock) as mock_gen, \
-         patch.object(pipeline._generator, "get_relevant_files") as mock_files, \
-         patch.object(pipeline._sandbox, "get_current_commit", new_callable=AsyncMock) as mock_commit, \
-         patch.object(pipeline._sandbox, "create_branch", new_callable=AsyncMock) as mock_branch, \
-         patch.object(pipeline._sandbox, "apply_changes", new_callable=AsyncMock) as mock_apply, \
-         patch.object(pipeline._sandbox, "commit_changes", new_callable=AsyncMock) as mock_cc, \
-         patch.object(pipeline._sandbox, "run_full_test", new_callable=AsyncMock) as mock_test, \
-         patch.object(pipeline._sandbox, "get_diff", new_callable=AsyncMock) as mock_diff, \
-         patch.object(pipeline._sandbox, "cleanup", new_callable=AsyncMock):
+    with (
+        patch.object(pipeline._analyzer, "get_top_patterns", new_callable=AsyncMock) as mock_top,
+        patch.object(pipeline._generator, "generate_fixes", new_callable=AsyncMock) as mock_gen,
+        patch.object(pipeline._generator, "get_relevant_files") as mock_files,
+        patch.object(
+            pipeline._sandbox, "get_current_commit",
+            new_callable=AsyncMock,
+        ) as mock_commit,
+        patch.object(pipeline._sandbox, "create_branch", new_callable=AsyncMock) as mock_branch,
+        patch.object(pipeline._sandbox, "apply_changes", new_callable=AsyncMock) as mock_apply,
+        patch.object(pipeline._sandbox, "commit_changes", new_callable=AsyncMock) as mock_cc,
+        patch.object(pipeline._sandbox, "run_full_test", new_callable=AsyncMock) as mock_test,
+        patch.object(pipeline._sandbox, "get_diff", new_callable=AsyncMock) as mock_diff,
+        patch.object(pipeline._sandbox, "cleanup", new_callable=AsyncMock),
+    ):
         mock_top.return_value = mock_patterns
         mock_files.return_value = {}
         mock_gen.return_value = mock_gen_result
@@ -212,16 +217,30 @@ async def test_execute_test_failure_retries(
         call_count += 1
         return True
 
-    with patch.object(pipeline._analyzer, "get_top_patterns", side_effect=mock_get_top), \
-         patch.object(pipeline._generator, "generate_fixes", side_effect=mock_gen), \
-         patch.object(pipeline._generator, "get_relevant_files", return_value={}), \
-         patch.object(pipeline._sandbox, "get_current_commit", new_callable=AsyncMock, return_value="abc"), \
-         patch.object(pipeline._sandbox, "create_branch", side_effect=mock_create_branch), \
-         patch.object(pipeline._sandbox, "apply_changes", new_callable=AsyncMock, return_value=["f.py"]), \
-         patch.object(pipeline._sandbox, "commit_changes", new_callable=AsyncMock, return_value="xyz"), \
-         patch.object(pipeline._sandbox, "run_full_test", new_callable=AsyncMock, return_value=mock_test_fail), \
-         patch.object(pipeline._sandbox, "cleanup", new_callable=AsyncMock), \
-         patch.object(pipeline._sandbox, "delete_branch", new_callable=AsyncMock):
+    with (
+        patch.object(pipeline._analyzer, "get_top_patterns", side_effect=mock_get_top),
+        patch.object(pipeline._generator, "generate_fixes", side_effect=mock_gen),
+        patch.object(pipeline._generator, "get_relevant_files", return_value={}),
+        patch.object(
+            pipeline._sandbox, "get_current_commit",
+            new_callable=AsyncMock, return_value="abc",
+        ),
+        patch.object(pipeline._sandbox, "create_branch", side_effect=mock_create_branch),
+        patch.object(
+            pipeline._sandbox, "apply_changes",
+            new_callable=AsyncMock, return_value=["f.py"],
+        ),
+        patch.object(
+            pipeline._sandbox, "commit_changes",
+            new_callable=AsyncMock, return_value="xyz",
+        ),
+        patch.object(
+            pipeline._sandbox, "run_full_test",
+            new_callable=AsyncMock, return_value=mock_test_fail,
+        ),
+        patch.object(pipeline._sandbox, "cleanup", new_callable=AsyncMock),
+        patch.object(pipeline._sandbox, "delete_branch", new_callable=AsyncMock),
+    ):
 
         await pipeline.execute(run["id"])
 

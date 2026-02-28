@@ -1,16 +1,13 @@
 """Unit tests for R(Rule Engine) — ``src.core.rule_engine``."""
 from __future__ import annotations
 
-import textwrap
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 import pytest
 import yaml
 
-from src.core.rule_engine import RuleEngine, VALID_CATEGORIES, _normalise, _text_similarity
+from src.core.rule_engine import VALID_CATEGORIES, RuleEngine, _normalise, _text_similarity
 from src.core.types import ExtractedElement, PageState, RuleDefinition
-
 
 # ── Fixtures ─────────────────────────────────────────
 

@@ -5,18 +5,23 @@ helper that returns (provider_name, model_name) for any specification.
 """
 from __future__ import annotations
 
+import os
+
+_FLASH = os.environ.get("GEMINI_FLASH_MODEL", "gemini-3-flash-preview")
+_PRO = os.environ.get("GEMINI_PRO_MODEL", "gemini-3.1-pro-preview")
+
 SUPPORTED_MODELS: dict[str, dict[str, str]] = {
-    "gemini-2.0-flash": {"provider": "gemini", "tier": "flash"},
-    "gemini-2.5-pro-preview-05-06": {"provider": "gemini", "tier": "pro"},
-    "gemini-3-flash-preview": {"provider": "gemini", "tier": "flash"},
-    "gemini-3.1-pro-preview": {"provider": "gemini", "tier": "pro"},
+    _FLASH: {"provider": "gemini", "tier": "flash"},
+    _PRO: {"provider": "gemini", "tier": "pro"},
+    "gemini-2.5-flash": {"provider": "gemini", "tier": "flash"},
+    "gemini-2.5-pro": {"provider": "gemini", "tier": "pro"},
     "gpt-4o": {"provider": "openai", "tier": "pro"},
     "gpt-4o-mini": {"provider": "openai", "tier": "flash"},
 }
 
 # Default models per provider+tier
 _DEFAULTS: dict[str, dict[str, str]] = {
-    "gemini": {"flash": "gemini-2.0-flash", "pro": "gemini-2.5-pro-preview-05-06"},
+    "gemini": {"flash": _FLASH, "pro": _PRO},
     "openai": {"flash": "gpt-4o-mini", "pro": "gpt-4o"},
 }
 

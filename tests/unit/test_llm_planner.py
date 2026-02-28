@@ -2,14 +2,13 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
 from src.ai.llm_planner import LLMPlanner, UsageStats, _extract_json, create_llm_planner
 from src.ai.prompt_manager import PromptManager
-from src.core.types import ExtractedElement, PatchData, StepDefinition
-
+from src.core.types import ExtractedElement, PatchData
 
 # ── Fixtures ─────────────────────────────────────────
 
@@ -284,58 +283,26 @@ class TestPlanMethod:
         assert planner.usage.escalations == 0
 
     @pytest.mark.asyncio
-    async def test_plan_low_confidence_escalates(self, planner: LLMPlanner) -> None:
-        """Tier1 returns low confidence — escalates to tier2."""
-        tier1_response = json.dumps({
+    async def test_plan_low_confidence_no_escalation(self, planner: LLMPlanner) -> None:
+        """Low confidence returns result as-is — no Pro escalation."""
+        response = json.dumps({
             "confidence": 0.5,
             "steps": [{"step_id": "s1", "intent": "unclear", "node_type": "action"}],
         })
-        tier2_response = json.dumps({
-            "confidence": 0.95,
-            "steps": [
-                {"step_id": "s1", "intent": "Navigate", "node_type": "action"},
-                {"step_id": "s2", "intent": "Search", "node_type": "action"},
-            ],
-        })
-
-        call_count = 0
-
-        async def _mock_call(prompt: str, model: str) -> tuple[str, int]:
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                return tier1_response, 50
-            return tier2_response, 200
-
-        planner._call_gemini = AsyncMock(side_effect=_mock_call)
+        planner._call_gemini = _mock_gemini_response(response, 50)
 
         steps = await planner.plan("Complex task")
-        assert len(steps) == 2
-        assert planner.usage.calls == 2
-        assert planner.usage.escalations == 1
+        assert len(steps) == 1
+        assert planner.usage.calls == 1
+        assert planner.usage.escalations == 0
 
     @pytest.mark.asyncio
-    async def test_plan_parse_fail_escalates(self, planner: LLMPlanner) -> None:
-        """Tier1 returns garbage — parse fails, escalates to tier2."""
-        tier2_response = json.dumps([
-            {"step_id": "s1", "intent": "Fixed step", "node_type": "action"},
-        ])
+    async def test_plan_parse_fail_raises(self, planner: LLMPlanner) -> None:
+        """Flash parse failure raises directly — no Pro fallback."""
+        planner._call_gemini = _mock_gemini_response("not valid json at all", 30)
 
-        call_count = 0
-
-        async def _mock_call(prompt: str, model: str) -> tuple[str, int]:
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                return "not valid json at all", 30
-            return tier2_response, 100
-
-        planner._call_gemini = AsyncMock(side_effect=_mock_call)
-
-        steps = await planner.plan("Do something")
-        assert len(steps) == 1
-        assert steps[0].intent == "Fixed step"
-        assert planner.usage.escalations == 1
+        with pytest.raises((json.JSONDecodeError, ValueError)):
+            await planner.plan("Do something")
 
     @pytest.mark.asyncio
     async def test_plan_uses_correct_prompt(
@@ -382,60 +349,32 @@ class TestSelectMethod:
         assert planner.usage.escalations == 0
 
     @pytest.mark.asyncio
-    async def test_select_low_confidence_escalates(
+    async def test_select_low_confidence_no_escalation(
         self, planner: LLMPlanner, sample_candidates: list[ExtractedElement]
     ) -> None:
-        """Tier1 returns low confidence — escalates to tier2."""
+        """Tier1 returns low confidence — still returns it (no escalation)."""
         tier1_resp = json.dumps({
             "eid": "link-home",
             "confidence": 0.4,
             "reasoning": "uncertain",
         })
-        tier2_resp = json.dumps({
-            "eid": "btn-search",
-            "confidence": 0.92,
-            "reasoning": "Search button is the correct target",
-        })
 
-        call_count = 0
-
-        async def _mock_call(prompt: str, model: str) -> tuple[str, int]:
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                return tier1_resp, 60
-            return tier2_resp, 150
-
-        planner._call_gemini = AsyncMock(side_effect=_mock_call)
+        planner._call_gemini = AsyncMock(return_value=(tier1_resp, 60))
 
         patch = await planner.select(sample_candidates, "click search")
-        assert patch.target == "btn-search"
-        assert planner.usage.escalations == 1
+        assert patch.target == "link-home"
+        assert planner.usage.escalations == 0
 
     @pytest.mark.asyncio
-    async def test_select_parse_fail_escalates(
+    async def test_select_parse_fail_returns_empty(
         self, planner: LLMPlanner, sample_candidates: list[ExtractedElement]
     ) -> None:
-        """Tier1 parse failure triggers tier2 escalation."""
-        tier2_resp = json.dumps({
-            "eid": "input-query",
-            "confidence": 0.88,
-            "reasoning": "Input field for typing",
-        })
-
-        call_count = 0
-
-        async def _mock_call(prompt: str, model: str) -> tuple[str, int]:
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                return "broken response", 30
-            return tier2_resp, 120
-
-        planner._call_gemini = AsyncMock(side_effect=_mock_call)
+        """Tier1 parse failure returns empty fallback (no escalation)."""
+        planner._call_gemini = AsyncMock(return_value=("broken response", 30))
 
         patch = await planner.select(sample_candidates, "type query")
-        assert patch.target == "input-query"
+        assert patch.target == ""
+        assert patch.confidence == 0.0
 
     @pytest.mark.asyncio
     async def test_select_serializes_candidates(
@@ -458,6 +397,51 @@ class TestSelectMethod:
         assert "btn-search" in captured_prompt
         assert "link-home" in captured_prompt
         assert "input-query" in captured_prompt
+        # Compact JSON: no 'visible' field in candidates
+        assert '"visible"' not in captured_prompt
+
+    @pytest.mark.asyncio
+    async def test_select_passes_page_context_to_prompt(
+        self, planner: LLMPlanner, sample_candidates: list[ExtractedElement]
+    ) -> None:
+        """select() forwards page_context to the prompt template."""
+        captured_prompt = None
+
+        async def _capture(prompt: str, model: str) -> tuple[str, int]:
+            nonlocal captured_prompt
+            captured_prompt = prompt
+            return json.dumps({
+                "eid": "btn-search", "confidence": 0.9, "reasoning": "ok"
+            }), 50
+
+        planner._call_gemini = AsyncMock(side_effect=_capture)
+
+        context = (
+            "Page context:\n"
+            "- URL: https://shopping.naver.com/sports\n"
+            "- Title: 스포츠 - 네이버쇼핑\n"
+            "- Previous action: Completed: Click Sports menu"
+        )
+        await planner.select(sample_candidates, "click jackets", page_context=context)
+        assert captured_prompt is not None
+        assert "https://shopping.naver.com/sports" in captured_prompt
+        assert "스포츠 - 네이버쇼핑" in captured_prompt
+        assert "Click Sports menu" in captured_prompt
+
+    @pytest.mark.asyncio
+    async def test_select_empty_page_context(
+        self, planner: LLMPlanner, sample_candidates: list[ExtractedElement]
+    ) -> None:
+        """select() works fine with empty page_context (backward compatible)."""
+        response = json.dumps({
+            "eid": "btn-search",
+            "confidence": 0.9,
+            "reasoning": "ok",
+        })
+        planner._call_gemini = _mock_gemini_response(response, 50)
+
+        patch = await planner.select(sample_candidates, "click search")
+        assert patch.target == "btn-search"
 
 
 # ── Test: Cost Tracking ──────────────────────────────
@@ -594,7 +578,10 @@ class TestPlanWithContext:
 
         async def mock_call(self, prompt, model, images=None):
             captured_prompts.append(prompt)
-            return '{"confidence": 0.9, "steps": [{"step_id": "s1", "intent": "click search", "node_type": "action"}]}', 100
+            return (
+                '{"confidence": 0.9, "steps": [{"step_id": "s1",'
+                ' "intent": "click search", "node_type": "action"}]}'
+            ), 100
 
         monkeypatch.setattr(LLMPlanner, "_call_gemini", mock_call)
         planner = LLMPlanner(PromptManager(), api_key="fake")

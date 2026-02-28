@@ -19,10 +19,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from enum import Enum
-from typing import Any, Callable
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import Any
 from uuid import uuid4
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ logger = logging.getLogger(__name__)
 # ── Enums ────────────────────────────────────────────
 
 
-class HandoffReason(str, Enum):
+class HandoffReason(StrEnum):
     """Reason for requesting human handoff."""
     CAPTCHA = "captcha"
     AUTH_2FA = "2fa"
@@ -155,7 +156,7 @@ class HandoffManager:
             The created ``HandoffRequest``.
         """
         request_id = str(uuid4())
-        created_at = datetime.now(timezone.utc).isoformat()
+        created_at = datetime.now(UTC).isoformat()
 
         request = HandoffRequest(
             reason=reason,
@@ -218,7 +219,7 @@ class HandoffManager:
 
         try:
             await asyncio.wait_for(event.wait(), timeout=timeout_s)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             raise HandoffTimeoutError(
                 f"Handoff request {request_id} timed out after {timeout_s}s"
             ) from None

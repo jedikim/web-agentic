@@ -24,15 +24,12 @@ _SCRIPTS_DIR = _PROJECT_ROOT / "scripts"
 sys.path.insert(0, str(_SCRIPTS_DIR))
 sys.path.insert(0, str(_PROJECT_ROOT))
 
-from src.core.orchestrator import Orchestrator
-from src.core.types import (
+from src.core.orchestrator import Orchestrator  # noqa: E402
+from src.core.types import (  # noqa: E402
     FailureCode,
-    StepDefinition,
     StepResult,
-    VerifyCondition,
 )
-from src.workflow.dsl_parser import parse_workflow
-
+from src.workflow.dsl_parser import parse_workflow  # noqa: E402
 
 # ── 1. Workflow File Loading ─────────────────────────
 
@@ -42,12 +39,12 @@ class TestWorkflowLoading:
 
     def test_naver_workflow_file_exists(self) -> None:
         """naver_shopping.yaml exists in config/workflows."""
-        path = _PROJECT_ROOT / "config" / "workflows" / "naver_shopping.yaml"
+        path = _PROJECT_ROOT / "tests" / "fixtures" / "workflows" / "naver_shopping.yaml"
         assert path.exists(), f"Missing workflow file: {path}"
 
     def test_naver_workflow_parses_correctly(self) -> None:
         """naver_shopping.yaml parses into valid StepDefinitions."""
-        path = _PROJECT_ROOT / "config" / "workflows" / "naver_shopping.yaml"
+        path = _PROJECT_ROOT / "tests" / "fixtures" / "workflows" / "naver_shopping.yaml"
         steps = parse_workflow(path)
 
         assert isinstance(steps, list)
@@ -55,7 +52,7 @@ class TestWorkflowLoading:
 
     def test_naver_workflow_step_ids(self) -> None:
         """All step IDs are unique and match expected names."""
-        path = _PROJECT_ROOT / "config" / "workflows" / "naver_shopping.yaml"
+        path = _PROJECT_ROOT / "tests" / "fixtures" / "workflows" / "naver_shopping.yaml"
         steps = parse_workflow(path)
 
         expected_ids = [
@@ -76,7 +73,7 @@ class TestWorkflowLoading:
 
     def test_naver_workflow_verify_conditions(self) -> None:
         """Steps with verify conditions parse correctly."""
-        path = _PROJECT_ROOT / "config" / "workflows" / "naver_shopping.yaml"
+        path = _PROJECT_ROOT / "tests" / "fixtures" / "workflows" / "naver_shopping.yaml"
         steps = parse_workflow(path)
         steps_by_id = {s.step_id: s for s in steps}
 
@@ -99,7 +96,7 @@ class TestWorkflowLoading:
 
     def test_naver_workflow_node_types(self) -> None:
         """Steps have correct node types."""
-        path = _PROJECT_ROOT / "config" / "workflows" / "naver_shopping.yaml"
+        path = _PROJECT_ROOT / "tests" / "fixtures" / "workflows" / "naver_shopping.yaml"
         steps = parse_workflow(path)
         steps_by_id = {s.step_id: s for s in steps}
 
@@ -110,7 +107,7 @@ class TestWorkflowLoading:
 
     def test_naver_workflow_arguments(self) -> None:
         """Steps with arguments parse correctly."""
-        path = _PROJECT_ROOT / "config" / "workflows" / "naver_shopping.yaml"
+        path = _PROJECT_ROOT / "tests" / "fixtures" / "workflows" / "naver_shopping.yaml"
         steps = parse_workflow(path)
         steps_by_id = {s.step_id: s for s in steps}
 
@@ -191,7 +188,9 @@ class TestIterationLoop:
             mock_memory = MagicMock()
             mock_ce.return_value = (mock_orch, mock_executor, mock_memory)
 
-            workflow_path = _PROJECT_ROOT / "config" / "workflows" / "naver_shopping.yaml"
+            workflow_path = (
+                _PROJECT_ROOT / "tests" / "fixtures" / "workflows" / "naver_shopping.yaml"
+            )
             results = await run_poc(workflow_path, headless=True, iterations=1)
 
             assert len(results) == 1
@@ -216,7 +215,9 @@ class TestIterationLoop:
             mock_memory = MagicMock()
             mock_ce.return_value = (mock_orch, mock_executor, mock_memory)
 
-            workflow_path = _PROJECT_ROOT / "config" / "workflows" / "naver_shopping.yaml"
+            workflow_path = (
+                _PROJECT_ROOT / "tests" / "fixtures" / "workflows" / "naver_shopping.yaml"
+            )
             results = await run_poc(workflow_path, headless=True, iterations=3)
 
             assert len(results) == 3
@@ -235,7 +236,9 @@ class TestIterationLoop:
             mock_memory = MagicMock()
             mock_ce.return_value = (mock_orch, mock_executor, mock_memory)
 
-            workflow_path = _PROJECT_ROOT / "config" / "workflows" / "naver_shopping.yaml"
+            workflow_path = (
+                _PROJECT_ROOT / "tests" / "fixtures" / "workflows" / "naver_shopping.yaml"
+            )
             results = await run_poc(workflow_path, headless=True, iterations=1)
 
             assert len(results) == 1
@@ -268,7 +271,9 @@ class TestResultStructure:
             mock_memory = MagicMock()
             mock_ce.return_value = (mock_orch, mock_executor, mock_memory)
 
-            workflow_path = _PROJECT_ROOT / "config" / "workflows" / "naver_shopping.yaml"
+            workflow_path = (
+                _PROJECT_ROOT / "tests" / "fixtures" / "workflows" / "naver_shopping.yaml"
+            )
             results = await run_poc(workflow_path, headless=True, iterations=1)
 
             r = results[0]
@@ -308,7 +313,9 @@ class TestResultStructure:
             mock_memory = MagicMock()
             mock_ce.return_value = (mock_orch, mock_executor, mock_memory)
 
-            workflow_path = _PROJECT_ROOT / "config" / "workflows" / "naver_shopping.yaml"
+            workflow_path = (
+                _PROJECT_ROOT / "tests" / "fixtures" / "workflows" / "naver_shopping.yaml"
+            )
             results = await run_poc(workflow_path, headless=True, iterations=1)
 
             # Should not raise.

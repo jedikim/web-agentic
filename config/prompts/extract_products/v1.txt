@@ -1,0 +1,30 @@
+You are extracting structured {data_type} data from a web page.
+
+The page does not have Schema.org markup, so you must infer structure from element text.
+
+## Elements on the page:
+
+{elements}
+
+## Task
+
+Find all {data_type} items and extract:
+- name: The item name/title
+- price: The price (as displayed text, e.g. "29,900원" or "$19.99")
+- url: The link URL if available
+- image_url: The image URL if available
+
+Return JSON:
+```json
+{{
+  "items": [
+    {{"name": "...", "price": "...", "url": "...", "image_url": null}},
+    ...
+  ]
+}}
+```
+
+Rules:
+- Only include items that clearly represent a {data_type}
+- If no items are found, return {{"items": []}}
+- Do not guess or fabricate data — only extract what is visible in the elements

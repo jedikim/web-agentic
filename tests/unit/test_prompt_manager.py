@@ -7,7 +7,6 @@ import pytest
 
 from src.ai.prompt_manager import PromptManager
 
-
 # ── Fixtures ─────────────────────────────────────────
 
 
@@ -186,25 +185,22 @@ class TestFileLoading:
         result = pm.get_prompt("custom_prompt", version="v2", var="hello")
         assert result == "File prompt v2: hello"
 
-    def test_file_prompts_coexist_with_builtins(self, tmp_path: Path) -> None:
-        """File-loaded prompts do not remove built-in prompts."""
-        prompt_dir = tmp_path / "extra"
-        prompt_dir.mkdir()
-        (prompt_dir / "v1.txt").write_text("Extra", encoding="utf-8")
-
-        pm = PromptManager(prompts_dir=tmp_path)
+    def test_default_loads_from_config_prompts(self) -> None:
+        """Default PromptManager loads prompts from config/prompts/."""
+        pm = PromptManager()
         prompts = pm.list_prompts()
         assert "plan_steps" in prompts
-        assert "extra" in prompts
+        assert "select_element" in prompts
+        assert "fix_selector" in prompts
+        assert "plan_steps_with_context" in prompts
 
-    def test_nonexistent_dir_handled(self) -> None:
-        """Non-existent prompts_dir does not raise."""
+    def test_nonexistent_dir_yields_empty(self) -> None:
+        """Non-existent prompts_dir yields no prompts."""
         pm = PromptManager(prompts_dir=Path("/tmp/nonexistent_prompt_dir_xyz"))
-        # Built-ins should still be present
-        assert "plan_steps" in pm.list_prompts()
+        assert pm.list_prompts() == {}
 
-    def test_file_overrides_builtin_version(self, tmp_path: Path) -> None:
-        """File-loaded prompt version overrides a built-in with the same name+version."""
+    def test_custom_dir_overrides_default(self, tmp_path: Path) -> None:
+        """Custom prompts_dir replaces the default config/prompts/."""
         prompt_dir = tmp_path / "plan_steps"
         prompt_dir.mkdir()
         (prompt_dir / "v1.txt").write_text(
@@ -214,3 +210,5 @@ class TestFileLoading:
         pm = PromptManager(prompts_dir=tmp_path)
         result = pm.get_prompt("plan_steps", version="v1", instruction="test")
         assert result == "Custom plan: test"
+        # Only prompts from the custom dir — not from config/prompts/
+        assert "select_element" not in pm.list_prompts()

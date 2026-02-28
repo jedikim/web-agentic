@@ -42,7 +42,7 @@ class TestLLMPlannerLive:
 
     async def test_plan_tier1_model_name(self) -> None:
         """plan() uses the configured tier1 model (gemini-3-flash-preview)."""
-        from src.ai.llm_planner import create_llm_planner, DEFAULT_FLASH_MODEL
+        from src.ai.llm_planner import DEFAULT_FLASH_MODEL, create_llm_planner
 
         planner = create_llm_planner()
         assert planner.tier1_model == DEFAULT_FLASH_MODEL
@@ -111,9 +111,9 @@ class TestVLMClientLive:
     async def test_vlm_model_defaults(self) -> None:
         """VLM client uses correct default model names."""
         from src.vision.vlm_client import (
-            create_vlm_client,
             DEFAULT_VLM_FLASH,
             DEFAULT_VLM_PRO,
+            create_vlm_client,
         )
 
         client = create_vlm_client()
