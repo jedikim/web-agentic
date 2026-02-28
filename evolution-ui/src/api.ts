@@ -289,6 +289,55 @@ export const sessions = {
     fetchJSON<StatusResponse>(`/sessions/${id}`, { method: 'DELETE' }),
 };
 
+// ── Chat Automation ──────────────────────────────
+
+export interface ChatStartResult {
+  run_id: string;
+  status: string;
+}
+
+export interface ChatStatus {
+  run_id: string;
+  session_id: string;
+  status: string;
+  current_step: number;
+  total_steps: number;
+  error: string | null;
+  result_summary: string | null;
+}
+
+export const chat = {
+  start: (sessionId: string, instruction: string, headless = true) =>
+    fetchJSON<ChatStartResult>(`/sessions/${sessionId}/chat/start`, {
+      method: 'POST',
+      body: JSON.stringify({ instruction, headless }),
+    }),
+
+  pause: (sessionId: string, runId: string) =>
+    fetchJSON<StatusResponse>(`/sessions/${sessionId}/chat/${runId}/pause`, {
+      method: 'POST',
+    }),
+
+  resume: (sessionId: string, runId: string) =>
+    fetchJSON<StatusResponse>(`/sessions/${sessionId}/chat/${runId}/resume`, {
+      method: 'POST',
+    }),
+
+  cancel: (sessionId: string, runId: string) =>
+    fetchJSON<StatusResponse>(`/sessions/${sessionId}/chat/${runId}/cancel`, {
+      method: 'POST',
+    }),
+
+  captcha: (sessionId: string, runId: string, solution: string) =>
+    fetchJSON<StatusResponse>(`/sessions/${sessionId}/chat/${runId}/captcha`, {
+      method: 'POST',
+      body: JSON.stringify({ solution }),
+    }),
+
+  status: (sessionId: string, runId: string) =>
+    fetchJSON<ChatStatus>(`/sessions/${sessionId}/chat/${runId}/status`),
+};
+
 // ── Automation (one-shot) ────────────────────────
 
 export const automation = {

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   automation,
+  chat,
   sessions,
   subscribeSSE,
+  type ChatStatus,
   type HandoffItem,
   type OneShotResult,
   type TurnResult,
@@ -36,7 +38,14 @@ export default function Automation() {
   const [oneShotResult, setOneShotResult] = useState<OneShotResult | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  // Chat automation state
+  const [chatRunId, setChatRunId] = useState<string | null>(null)
+  const [chatStatus, setChatStatus] = useState<ChatStatus | null>(null)
+  const [captchaModalOpen, setCaptchaModalOpen] = useState(false)
+  const [captchaSolution, setCaptchaSolution] = useState('')
+
   const prevScreenshotUrl = useRef<string | null>(null)
+  const chatPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Load turn history when sessionId changes (including after page refresh)
   useEffect(() => {
@@ -114,6 +123,29 @@ export default function Automation() {
       }
     }
   }, [])
+
+  // Poll chat status while a chat run is active
+  useEffect(() => {
+    if (!sessionId || !chatRunId) return
+    const poll = setInterval(async () => {
+      try {
+        const status = await chat.status(sessionId, chatRunId)
+        setChatStatus(status)
+        if (status.status === 'captcha_required') {
+          setCaptchaModalOpen(true)
+        }
+        if (['completed', 'canceled', 'failed'].includes(status.status)) {
+          clearInterval(poll)
+          refreshScreenshot(sessionId)
+        }
+      } catch {
+        // Chat run may have been cleaned up
+        clearInterval(poll)
+      }
+    }, 2000)
+    chatPollRef.current = poll
+    return () => clearInterval(poll)
+  }, [sessionId, chatRunId, refreshScreenshot])
 
   const handleNewSession = async () => {
     setExecuting(true)
@@ -217,8 +249,71 @@ export default function Automation() {
     try {
       await sessions.close(sessionId)
       setSessionStatus('closed')
+      setChatRunId(null)
+      setChatStatus(null)
     } catch (e) {
       console.error('Close session failed:', e)
+    }
+  }
+
+  const handleChatStart = async () => {
+    if (!sessionId || !intent.trim()) return
+    setExecuting(true)
+    setError(null)
+    try {
+      const res = await chat.start(sessionId, intent.trim(), headless)
+      setChatRunId(res.run_id)
+      setChatStatus({ run_id: res.run_id, session_id: sessionId, status: 'running', current_step: 0, total_steps: 0, error: null, result_summary: null })
+      setIntent('')
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setError(`Chat start failed: ${msg}`)
+    } finally {
+      setExecuting(false)
+    }
+  }
+
+  const handleChatPause = async () => {
+    if (!sessionId || !chatRunId) return
+    try {
+      await chat.pause(sessionId, chatRunId)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setError(`Pause failed: ${msg}`)
+    }
+  }
+
+  const handleChatResume = async () => {
+    if (!sessionId || !chatRunId) return
+    try {
+      await chat.resume(sessionId, chatRunId)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setError(`Resume failed: ${msg}`)
+    }
+  }
+
+  const handleChatCancel = async () => {
+    if (!sessionId || !chatRunId) return
+    try {
+      await chat.cancel(sessionId, chatRunId)
+      setChatRunId(null)
+      setChatStatus(null)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setError(`Cancel failed: ${msg}`)
+    }
+  }
+
+  const handleCaptchaSubmit = async () => {
+    if (!sessionId || !chatRunId || !captchaSolution.trim()) return
+    try {
+      await chat.captcha(sessionId, chatRunId, captchaSolution.trim())
+      setCaptchaModalOpen(false)
+      setCaptchaSolution('')
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setError(`CAPTCHA submit failed: ${msg}`)
     }
   }
 
@@ -283,13 +378,20 @@ export default function Automation() {
             className="flex-1 bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           />
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <button
             onClick={handleExecuteTurn}
-            disabled={executing || !sessionId || !intent.trim()}
+            disabled={executing || !sessionId || !intent.trim() || !!chatRunId}
             className="bg-green-600 hover:bg-green-700 disabled:opacity-50 px-4 py-2 rounded text-sm font-medium transition-colors"
           >
             {executing ? 'Executing...' : 'Execute Turn'}
+          </button>
+          <button
+            onClick={handleChatStart}
+            disabled={executing || !sessionId || !intent.trim() || !!chatRunId}
+            className="bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 px-4 py-2 rounded text-sm font-medium transition-colors"
+          >
+            Chat Run
           </button>
           <button
             onClick={handleOneShotRun}
@@ -344,6 +446,58 @@ export default function Automation() {
               {pendingHandoffs.length} handoff(s)
             </span>
           )}
+        </div>
+      )}
+
+      {/* Chat automation controls */}
+      {chatRunId && chatStatus && (
+        <div className="bg-cyan-900/20 border border-cyan-800/50 rounded-lg p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-cyan-300">Chat Automation</h3>
+            <ChatStatusBadge status={chatStatus.status} />
+          </div>
+          <div className="flex gap-4 text-xs text-gray-400">
+            <span>Run: <span className="font-mono text-gray-300">{chatRunId.slice(0, 8)}</span></span>
+            <span>Step: {chatStatus.current_step}/{chatStatus.total_steps || '?'}</span>
+            {chatStatus.result_summary && <span className="text-blue-300">{chatStatus.result_summary}</span>}
+          </div>
+          {chatStatus.error && (
+            <p className="text-xs text-red-400">{chatStatus.error}</p>
+          )}
+          <div className="flex gap-2">
+            {chatStatus.status === 'running' && (
+              <button
+                onClick={handleChatPause}
+                className="bg-yellow-600 hover:bg-yellow-700 px-3 py-1.5 rounded text-xs font-medium transition-colors"
+              >
+                Pause
+              </button>
+            )}
+            {chatStatus.status === 'paused' && (
+              <button
+                onClick={handleChatResume}
+                className="bg-green-600 hover:bg-green-700 px-3 py-1.5 rounded text-xs font-medium transition-colors"
+              >
+                Resume
+              </button>
+            )}
+            {!['completed', 'canceled', 'failed'].includes(chatStatus.status) && (
+              <button
+                onClick={handleChatCancel}
+                className="bg-red-600 hover:bg-red-700 px-3 py-1.5 rounded text-xs font-medium transition-colors"
+              >
+                Cancel
+              </button>
+            )}
+            {['completed', 'canceled', 'failed'].includes(chatStatus.status) && (
+              <button
+                onClick={() => { setChatRunId(null); setChatStatus(null) }}
+                className="bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded text-xs font-medium transition-colors"
+              >
+                Dismiss
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -430,6 +584,55 @@ export default function Automation() {
         </div>
       </div>
 
+      {/* CAPTCHA modal */}
+      {captchaModalOpen && chatRunId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-gray-900 border border-gray-700 rounded-lg p-6 max-w-lg w-full mx-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-yellow-400">CAPTCHA Required</h3>
+              <button
+                onClick={() => setCaptchaModalOpen(false)}
+                className="text-gray-500 hover:text-gray-300"
+              >
+                &times;
+              </button>
+            </div>
+            <p className="text-sm text-gray-300">
+              The automation encountered a CAPTCHA. Please solve it in the browser and enter the solution below, or dismiss to handle it manually.
+            </p>
+            {sessionId && screenshotUrl && (
+              <img src={screenshotUrl} alt="Current page" className="w-full rounded border border-gray-700" />
+            )}
+            <div>
+              <label className="text-sm text-gray-400 block mb-1">CAPTCHA solution</label>
+              <input
+                type="text"
+                value={captchaSolution}
+                onChange={(e) => setCaptchaSolution(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleCaptchaSubmit() }}
+                placeholder="Enter CAPTCHA text..."
+                className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-yellow-500"
+              />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setCaptchaModalOpen(false)}
+                className="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded text-sm transition-colors"
+              >
+                Dismiss
+              </button>
+              <button
+                onClick={handleCaptchaSubmit}
+                disabled={!captchaSolution.trim()}
+                className="bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 px-4 py-2 rounded text-sm font-medium transition-colors"
+              >
+                Submit Solution
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Handoff modal */}
       {handoffModalOpen && activeHandoff && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
@@ -477,6 +680,22 @@ export default function Automation() {
         </div>
       )}
     </div>
+  )
+}
+
+function ChatStatusBadge({ status }: { status: string }) {
+  const colors: Record<string, string> = {
+    running: 'bg-cyan-900/50 text-cyan-400',
+    paused: 'bg-yellow-900/50 text-yellow-400',
+    completed: 'bg-green-900/50 text-green-400',
+    canceled: 'bg-gray-700 text-gray-400',
+    failed: 'bg-red-900/50 text-red-400',
+    captcha_required: 'bg-yellow-900/50 text-yellow-400',
+  }
+  return (
+    <span className={`px-2 py-0.5 rounded text-xs font-medium ${colors[status] ?? 'bg-gray-700 text-gray-400'}`}>
+      {status}
+    </span>
   )
 }
 
