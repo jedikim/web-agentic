@@ -58,10 +58,11 @@ class TestURLVerification:
         )
         assert result == "ok"
 
-    async def test_url_wrong_returns_wrong(
+    async def test_url_wrong_returns_ok_for_step_plan(
         self, verifier: ResultVerifier, mock_browser: Browser,
         action: Action, pre_screenshot: bytes, post_screenshot: bytes,
     ) -> None:
+        """StepPlan URL hint is a prediction — any URL change is ok."""
         mock_browser._page.url = "https://example.com/login"
         step = StepPlan(
             step_index=0, action_type="click",
@@ -70,6 +71,26 @@ class TestURLVerification:
         )
         result = await verifier.verify_result(
             pre_screenshot, post_screenshot, action, step,
+            mock_browser, "https://example.com",
+        )
+        assert result == "ok"
+
+    async def test_url_wrong_returns_wrong_for_cache(
+        self, verifier: ResultVerifier, mock_browser: Browser,
+        action: Action, pre_screenshot: bytes, post_screenshot: bytes,
+    ) -> None:
+        """CacheEntry URL hint is exact — mismatch returns wrong."""
+        mock_browser._page.url = "https://example.com/login"
+        cached = CacheEntry(
+            domain="example.com",
+            url_pattern="https://example.com",
+            task_type="스포츠 메뉴 클릭",
+            selector="#btn",
+            action_type="click",
+            expected_result="URL 변경: /category/sports",
+        )
+        result = await verifier.verify_result(
+            pre_screenshot, post_screenshot, action, cached,
             mock_browser, "https://example.com",
         )
         assert result == "wrong"

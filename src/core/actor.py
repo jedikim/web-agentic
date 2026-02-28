@@ -6,16 +6,20 @@ Given a list of ScoredNode candidates from ElementFilter, the Actor:
 3. Computes viewport-relative coordinates for the selected element
 
 The Actor outputs an Action with both selector and viewport_xy.
+Falls back to planner coordinates if element can't be located.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any, Protocol
 
 from src.core.browser import Browser
 from src.core.types import Action, ScoredNode, StepPlan
+
+logger = logging.getLogger(__name__)
 
 
 class IActorLLM(Protocol):
@@ -78,10 +82,23 @@ class Actor:
             browser, parsed["selector"],
         )
 
+        # If selector couldn't be located in page, fall back to planner xy
+        if viewport_xy is None and step.target_viewport_xy is not None:
+            logger.info(
+                "Selector %s not found in page, using planner xy %s",
+                parsed["selector"], step.target_viewport_xy,
+            )
+            viewport_xy = step.target_viewport_xy
+
+        # For type/fill actions, always use step.value from planner.
+        # The planner decides WHAT to type; the actor decides WHERE.
+        action_type = parsed["action"]
+        value = step.value if action_type in ("type", "fill") else parsed.get("value") or step.value
+
         return Action(
             selector=parsed["selector"],
-            action_type=parsed["action"],
-            value=parsed.get("value") or step.value,
+            action_type=action_type,
+            value=value,
             viewport_xy=viewport_xy,
             viewport_bbox=viewport_bbox,
         )

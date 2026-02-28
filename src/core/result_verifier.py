@@ -13,8 +13,12 @@ Returns: "ok" | "wrong" | "failed"
 
 from __future__ import annotations
 
+import logging
+
 from src.core.browser import Browser
 from src.core.types import Action, CacheEntry, StepPlan
+
+logger = logging.getLogger(__name__)
 
 
 class ResultVerifier:
@@ -55,6 +59,11 @@ class ResultVerifier:
         """
         expected = step_or_cache.expected_result
 
+        logger.debug(
+            "Verifying: expected=%s, pre_url=%s, post_url=%s",
+            expected, pre_url, browser.url,
+        )
+
         # ===== 1: URL-based verification (deterministic) =====
         url_changed = browser.url != pre_url
 
@@ -62,9 +71,25 @@ class ResultVerifier:
             url_hint = self._extract_url_hint(expected)
             if url_hint:
                 if url_hint in browser.url:
+                    logger.debug("URL hint matched: %s", url_hint)
                     return "ok"
                 if url_changed:
+                    # For StepPlan (not CacheEntry), URL hint is a prediction.
+                    # Any URL change means the action worked — just navigated
+                    # to a different page than predicted.
+                    if isinstance(step_or_cache, StepPlan):
+                        logger.debug(
+                            "URL changed (hint %s not matched, but step "
+                            "action caused navigation): %s",
+                            url_hint, browser.url,
+                        )
+                        return "ok"
+                    logger.debug(
+                        "URL changed but hint not matched: %s not in %s",
+                        url_hint, browser.url,
+                    )
                     return "wrong"
+                logger.debug("URL not changed, expected: %s", url_hint)
                 return "failed"
 
         # ===== 2: DOM assertion (element exists) =====
@@ -79,19 +104,30 @@ class ResultVerifier:
                 except Exception:
                     exists = False
                 if exists:
+                    logger.debug("DOM selector found: %s", dom_selector)
                     return "ok"
                 if url_changed:
+                    logger.debug(
+                        "URL changed but DOM selector not found: %s",
+                        dom_selector,
+                    )
                     return "wrong"
+                logger.debug("DOM selector not found: %s", dom_selector)
                 return "failed"
 
         # URL changed without specific expectation → likely success
         if url_changed:
+            logger.debug(
+                "URL changed (no specific expectation): %s → %s",
+                pre_url, browser.url,
+            )
             return "ok"
 
         # ===== 3: Vision comparison (pHash fallback) =====
         changed = self._screenshots_differ(pre_screenshot, post_screenshot)
 
         if not changed:
+            logger.debug("Screenshots identical — action had no effect")
             return "failed"
 
         # If we have a reference screenshot hash, compare
@@ -100,8 +136,13 @@ class ResultVerifier:
                 post_screenshot, step_or_cache.post_screenshot_phash,
             )
             if post_distance > self.PHASH_THRESHOLD:
+                logger.debug(
+                    "pHash distance %d > threshold %d",
+                    post_distance, self.PHASH_THRESHOLD,
+                )
                 return "wrong"
 
+        logger.debug("Screenshots differ — action succeeded")
         return "ok"
 
     def _screenshots_differ(

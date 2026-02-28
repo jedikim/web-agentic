@@ -7,6 +7,8 @@ Two paths:
 
 Retry: 2 consecutive failures → replan from current screen.
 Max replan: 2 times.
+
+Safety: total timeout (120s) and API call budget (30 calls) prevent runaway.
 """
 
 from __future__ import annotations
@@ -22,6 +24,12 @@ from src.core.cache import Cache
 from src.core.types import Action, CacheEntry, StepPlan
 
 logger = logging.getLogger(__name__)
+
+# Cost estimates per API call (Gemini Flash)
+_VLM_COST_EST = 0.0005  # VLM call with image
+_LLM_COST_EST = 0.0002  # Text-only LLM call
+_VLM_TOKENS_EST = 500
+_LLM_TOKENS_EST = 200
 
 
 @dataclass
@@ -67,8 +75,10 @@ class V3RunResult:
     result_summary: str = ""
 
 FILTER_SCORE_THRESHOLD = 0.5
-MAX_RETRY_PER_STEP = 3
+MAX_RETRY_PER_STEP = 2
 MAX_REPLAN = 2
+MAX_API_CALLS = 30
+DEFAULT_TIMEOUT_S = 180.0
 
 
 class IPlanner(Protocol):
@@ -116,6 +126,10 @@ class IVerifier(Protocol):
     ) -> str: ...
 
 
+class _BudgetExceededError(Exception):
+    """Raised when API call budget or timeout is exceeded."""
+
+
 class V3Orchestrator:
     """Main orchestrator for v3 pipeline.
 
@@ -136,6 +150,8 @@ class V3Orchestrator:
         executor: IExecutor,
         cache: Cache,
         verifier: IVerifier,
+        timeout_s: float = DEFAULT_TIMEOUT_S,
+        max_api_calls: int = MAX_API_CALLS,
     ) -> None:
         self.planner = planner
         self.extractor = extractor
@@ -144,6 +160,38 @@ class V3Orchestrator:
         self.executor = executor
         self.cache = cache
         self.verifier = verifier
+        self._timeout_s = timeout_s
+        self._max_api_calls = max_api_calls
+
+        # Runtime counters (reset per run)
+        self._run_start: float = 0.0
+        self._api_calls: int = 0
+        self._total_tokens: int = 0
+        self._total_cost: float = 0.0
+
+    def _check_budget(self) -> None:
+        """Raise if timeout or API call budget exceeded."""
+        elapsed = time.monotonic() - self._run_start
+        if elapsed > self._timeout_s:
+            raise _BudgetExceededError(
+                f"Timeout: {elapsed:.0f}s > {self._timeout_s:.0f}s"
+            )
+        if self._api_calls >= self._max_api_calls:
+            raise _BudgetExceededError(
+                f"API budget: {self._api_calls} >= {self._max_api_calls}"
+            )
+
+    def _track_vlm_call(self) -> None:
+        """Track a VLM API call."""
+        self._api_calls += 1
+        self._total_tokens += _VLM_TOKENS_EST
+        self._total_cost += _VLM_COST_EST
+
+    def _track_llm_call(self) -> None:
+        """Track a text LLM API call."""
+        self._api_calls += 1
+        self._total_tokens += _LLM_TOKENS_EST
+        self._total_cost += _LLM_COST_EST
 
     async def run(self, task: str, browser: Browser) -> bool:
         """Execute a task end-to-end.
@@ -155,44 +203,36 @@ class V3Orchestrator:
         Returns:
             True if all steps succeeded.
         """
-        screenshot = await browser.screenshot()
-        steps = await self.planner.plan(task, screenshot)
+        self._run_start = time.monotonic()
+        self._api_calls = 0
+        self._total_tokens = 0
+        self._total_cost = 0.0
 
-        if not steps:
-            logger.warning("Planner returned no steps for task: %s", task)
+        logger.info("▶ v3 run: %s", task)
+
+        try:
+            screenshot = await browser.screenshot()
+            self._check_budget()
+
+            logger.info("Planning task...")
+            steps = await self.planner.plan(task, screenshot)
+            self._track_vlm_call()
+
+            if not steps:
+                logger.warning("Planner returned no steps for task: %s", task)
+                return False
+
+            logger.info(
+                "Plan: %d steps — %s",
+                len(steps),
+                " → ".join(s.target_description for s in steps),
+            )
+
+            return await self._run_loop(task, steps, browser)
+
+        except _BudgetExceededError as exc:
+            logger.error("Budget exceeded: %s", exc)
             return False
-
-        replan_count = 0
-        consecutive_failures = 0
-        i = 0
-
-        while i < len(steps):
-            success = await self._execute_step(steps[i], browser)
-
-            if success:
-                consecutive_failures = 0
-                i += 1
-                continue
-
-            consecutive_failures += 1
-
-            # 2 consecutive failures at same step → replan from current screen
-            if consecutive_failures >= 2:
-                if replan_count < MAX_REPLAN:
-                    replan_count += 1
-                    screenshot = await browser.screenshot()
-                    remaining = " → ".join(s.target_description for s in steps[i:])
-                    steps = await self.planner.plan(
-                        f"{task} (남은 작업: {remaining})", screenshot,
-                    )
-                    if not steps:
-                        return False
-                    i = 0
-                    consecutive_failures = 0
-                    continue
-                return False  # replan count exceeded
-
-        return True
 
     async def run_with_result(
         self,
@@ -212,44 +252,167 @@ class V3Orchestrator:
         Returns:
             V3RunResult with per-step outcomes and totals.
         """
-        run_start = time.monotonic()
+        self._run_start = time.monotonic()
+        self._api_calls = 0
+        self._total_tokens = 0
+        self._total_cost = 0.0
         step_outcomes: list[V3StepOutcome] = []
 
-        screenshot = await browser.screenshot()
-        steps = await self.planner.plan(task, screenshot)
+        logger.info("▶ v3 run_with_result: %s", task)
 
-        if not steps:
-            return V3RunResult(
-                success=False,
-                result_summary="Planner returned no steps",
+        try:
+            screenshot = await browser.screenshot()
+            self._check_budget()
+
+            logger.info("Planning task...")
+            steps = await self.planner.plan(task, screenshot)
+            self._track_vlm_call()
+
+            if not steps:
+                logger.warning("Planner returned no steps")
+                return V3RunResult(
+                    success=False,
+                    result_summary="Planner returned no steps",
+                )
+
+            logger.info(
+                "Plan: %d steps — %s",
+                len(steps),
+                " → ".join(s.target_description for s in steps),
             )
 
+            replan_count = 0
+            consecutive_failures = 0
+            i = 0
+
+            while i < len(steps):
+                self._check_budget()
+                step_start = time.monotonic()
+
+                logger.info(
+                    "Step %d/%d: [%s] %s",
+                    i + 1, len(steps),
+                    steps[i].action_type,
+                    steps[i].target_description,
+                )
+
+                success = await self._execute_step(steps[i], browser)
+                step_ms = (time.monotonic() - step_start) * 1000
+
+                step_outcomes.append(V3StepOutcome(
+                    step_id=steps[i].target_description,
+                    success=success,
+                    method="cache" if success else "v3",
+                    latency_ms=step_ms,
+                    tokens_used=_VLM_TOKENS_EST,
+                    cost_usd=_VLM_COST_EST if not success else 0.0,
+                ))
+
+                if success:
+                    logger.info(
+                        "  ✓ Step %d OK (%.0fms)", i + 1, step_ms,
+                    )
+                    consecutive_failures = 0
+                    i += 1
+                    continue
+
+                consecutive_failures += 1
+                logger.warning(
+                    "  ✗ Step %d FAIL (attempt %d, %.0fms)",
+                    i + 1, consecutive_failures, step_ms,
+                )
+
+                if consecutive_failures >= 2:
+                    if replan_count < MAX_REPLAN:
+                        replan_count += 1
+                        logger.info(
+                            "Replanning (%d/%d)...", replan_count, MAX_REPLAN,
+                        )
+                        self._check_budget()
+                        screenshot = await browser.screenshot()
+                        remaining = " → ".join(
+                            s.target_description for s in steps[i:]
+                        )
+                        steps = await self.planner.plan(
+                            f"{task} (남은 작업: {remaining})", screenshot,
+                        )
+                        self._track_vlm_call()
+
+                        if not steps:
+                            logger.warning("Replan returned no steps")
+                            break
+                        logger.info(
+                            "New plan: %d steps — %s",
+                            len(steps),
+                            " → ".join(s.target_description for s in steps),
+                        )
+                        i = 0
+                        consecutive_failures = 0
+                        continue
+                    logger.error("Max replans exceeded, giving up")
+                    break
+
+        except _BudgetExceededError as exc:
+            logger.error("Budget exceeded: %s", exc)
+
+        all_ok = all(o.success for o in step_outcomes) and len(step_outcomes) > 0
+        total_ms = (time.monotonic() - self._run_start) * 1000
+
+        result = V3RunResult(
+            success=all_ok,
+            step_results=step_outcomes,
+            total_tokens=self._total_tokens,
+            total_cost_usd=self._total_cost,
+            result_summary=(
+                f"{'성공' if all_ok else '실패'}: "
+                f"{sum(1 for o in step_outcomes if o.success)}"
+                f"/{len(step_outcomes)} steps "
+                f"({total_ms:.0f}ms, "
+                f"API:{self._api_calls}, "
+                f"${self._total_cost:.4f})"
+            ),
+        )
+        logger.info("▶ Result: %s", result.result_summary)
+        return result
+
+    async def _run_loop(
+        self, task: str, steps: list[StepPlan], browser: Browser,
+    ) -> bool:
+        """Main execution loop with replan support."""
         replan_count = 0
         consecutive_failures = 0
         i = 0
 
         while i < len(steps):
-            step_start = time.monotonic()
-            success = await self._execute_step(steps[i], browser)
-            step_ms = (time.monotonic() - step_start) * 1000
+            self._check_budget()
 
-            step_outcomes.append(V3StepOutcome(
-                step_id=steps[i].target_description,
-                success=success,
-                method="cache" if success else "v3",
-                latency_ms=step_ms,
-            ))
+            logger.info(
+                "Step %d/%d: [%s] %s",
+                i + 1, len(steps),
+                steps[i].action_type,
+                steps[i].target_description,
+            )
+
+            success = await self._execute_step(steps[i], browser)
 
             if success:
+                logger.info("  ✓ Step %d OK", i + 1)
                 consecutive_failures = 0
                 i += 1
                 continue
 
             consecutive_failures += 1
+            logger.warning(
+                "  ✗ Step %d FAIL (attempt %d)", i + 1, consecutive_failures,
+            )
 
             if consecutive_failures >= 2:
                 if replan_count < MAX_REPLAN:
                     replan_count += 1
+                    logger.info(
+                        "Replanning (%d/%d)...", replan_count, MAX_REPLAN,
+                    )
+                    self._check_budget()
                     screenshot = await browser.screenshot()
                     remaining = " → ".join(
                         s.target_description for s in steps[i:]
@@ -257,28 +420,22 @@ class V3Orchestrator:
                     steps = await self.planner.plan(
                         f"{task} (남은 작업: {remaining})", screenshot,
                     )
+                    self._track_vlm_call()
+
                     if not steps:
-                        break
+                        return False
+                    logger.info(
+                        "New plan: %d steps — %s",
+                        len(steps),
+                        " → ".join(s.target_description for s in steps),
+                    )
                     i = 0
                     consecutive_failures = 0
                     continue
-                break
+                logger.error("Max replans exceeded")
+                return False
 
-        all_ok = all(o.success for o in step_outcomes) and len(step_outcomes) > 0
-        total_ms = (time.monotonic() - run_start) * 1000
-
-        return V3RunResult(
-            success=all_ok,
-            step_results=step_outcomes,
-            total_tokens=0,
-            total_cost_usd=0.0,
-            result_summary=(
-                f"{'성공' if all_ok else '실패'}: "
-                f"{sum(1 for o in step_outcomes if o.success)}"
-                f"/{len(step_outcomes)} steps "
-                f"({total_ms:.0f}ms)"
-            ),
-        )
+        return True
 
     async def _execute_step(self, step: StepPlan, browser: Browser) -> bool:
         """Execute a single step with cache check and full pipeline fallback."""
@@ -288,10 +445,12 @@ class V3Orchestrator:
         # === Cached path: try directly ===
         cached = await self.cache.lookup(domain, browser.url, step.target_description)
         if cached:
+            logger.info("  Cache hit: %s", cached.selector or "viewport")
             result = await self._try_cached(cached, browser, pre_screenshot)
             if result == "ok":
+                logger.info("  Cache execution OK")
                 return True
-            # "failed" or "wrong" → fall through to full pipeline
+            logger.info("  Cache execution %s, falling through to pipeline", result)
 
         # === Uncached path: full pipeline ===
         return await self._full_pipeline(step, browser, domain)
@@ -312,7 +471,8 @@ class V3Orchestrator:
 
         try:
             await self.executor.execute_action(action, browser)
-        except Exception:
+        except Exception as exc:
+            logger.debug("  Cache execute error: %s", exc)
             return "failed"
 
         await browser.wait(500)
@@ -333,17 +493,38 @@ class V3Orchestrator:
     ) -> bool:
         """Full uncached pipeline: screen check → extract → filter → act → verify."""
 
-        # 1. Ensure clean screen (remove obstacles)
+        # 1. Ensure clean screen (only once, NOT on retries)
+        self._check_budget()
         await self._ensure_clean_screen(browser)
 
         # 2. DOM extract + TextMatcher filter
         nodes = await self.extractor.extract(browser)
+        logger.info("  DOM: %d interactive nodes", len(nodes))
+
         candidates = self.filter.filter(nodes, step.keyword_weights)
         top_score = candidates[0].score if candidates else 0.0
+        logger.info(
+            "  Filter: %d candidates (top=%.2f, kw=%s)",
+            len(candidates),
+            top_score,
+            list(step.keyword_weights.keys())[:5],
+        )
 
         if top_score >= FILTER_SCORE_THRESHOLD:
+            self._check_budget()
             action = await self.actor.decide(step, candidates, browser)
+            self._track_llm_call()
+            logger.info(
+                "  Actor selected: %s [%s] val=%s",
+                action.selector or "viewport",
+                action.action_type,
+                action.value[:30] if action.value else None,
+            )
         else:
+            logger.info(
+                "  No strong candidate (%.2f < %.2f), using planner coords",
+                top_score, FILTER_SCORE_THRESHOLD,
+            )
             action = Action(
                 selector=None,
                 action_type=step.action_type,
@@ -351,21 +532,27 @@ class V3Orchestrator:
                 viewport_xy=step.target_viewport_xy,
             )
 
-        # 3. Execute + verify with retry
+        # 3. Execute + verify with retry (NO re-check_screen on retry)
         pre_url = browser.url
 
         for attempt in range(MAX_RETRY_PER_STEP):
+            self._check_budget()
             pre_screenshot = await browser.screenshot()
 
             try:
                 await self.executor.execute_action(action, browser)
-            except Exception:
+                logger.info("  Execute OK (attempt %d)", attempt + 1)
+            except Exception as exc:
+                logger.warning("  Execute error (attempt %d): %s", attempt + 1, exc)
                 if attempt < MAX_RETRY_PER_STEP - 1:
                     # Re-extract and try different element
                     nodes = await self.extractor.extract(browser)
                     candidates = self.filter.filter(nodes, step.keyword_weights)
                     if candidates:
+                        self._check_budget()
                         action = await self.actor.decide(step, candidates, browser)
+                        self._track_llm_call()
+                        logger.info("  Retry: new action %s", action.selector)
                     continue
                 return False
 
@@ -375,6 +562,10 @@ class V3Orchestrator:
             result = await self.verifier.verify_result(
                 pre_screenshot, post_screenshot, action, step, browser,
                 pre_url=pre_url,
+            )
+            logger.info(
+                "  Verify: %s (url_changed=%s)",
+                result, browser.url != pre_url,
             )
 
             if result == "ok":
@@ -396,35 +587,56 @@ class V3Orchestrator:
                 return True
 
             if attempt < MAX_RETRY_PER_STEP - 1:
+                logger.info("  Retrying (attempt %d)...", attempt + 2)
                 # Re-extract for next attempt
                 nodes = await self.extractor.extract(browser)
                 candidates = self.filter.filter(nodes, step.keyword_weights)
                 if candidates:
+                    self._check_budget()
                     action = await self.actor.decide(step, candidates, browser)
+                    self._track_llm_call()
+                    logger.info("  Retry: new action %s", action.selector)
                 pre_url = browser.url
 
         return False
 
     async def _ensure_clean_screen(self, browser: Browser) -> bytes:
         """Remove obstacles (popups, ads) from screen. Max 3 attempts."""
-        for _ in range(3):
+        for attempt in range(3):
+            self._check_budget()
             screenshot = await browser.screenshot()
             screen_state = await self.planner.check_screen(screenshot)
+            self._track_vlm_call()
 
-            if not getattr(screen_state, "has_obstacle", False):
+            has_obstacle = getattr(screen_state, "has_obstacle", False)
+            obstacle_type = getattr(screen_state, "obstacle_type", None)
+
+            if not has_obstacle:
+                if attempt == 0:
+                    logger.info("  Screen clean")
+                else:
+                    logger.info("  Screen clean (after %d obstacles)", attempt)
                 return screenshot
+
+            logger.info(
+                "  Obstacle detected: %s (attempt %d/3)",
+                obstacle_type or "unknown", attempt + 1,
+            )
 
             close_xy = getattr(screen_state, "obstacle_close_xy", None)
             if close_xy:
                 size = await browser.get_viewport_size()
                 x = int(close_xy[0] * size["width"])
                 y = int(close_xy[1] * size["height"])
+                logger.info("  Closing obstacle at (%d, %d)", x, y)
                 await browser.mouse_click(x, y)
                 await browser.wait(500)
             else:
+                logger.info("  Pressing Escape to dismiss obstacle")
                 await browser.key_press("Escape")
                 await browser.wait(500)
 
+        logger.warning("  Could not clear all obstacles after 3 attempts")
         return await browser.screenshot()
 
     def _get_domain(self, url: str) -> str:
