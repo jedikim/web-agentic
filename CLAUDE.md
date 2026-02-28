@@ -1,10 +1,43 @@
-# CLAUDE.md — 적응형 웹 자동화 엔진 프로젝트
+# CLAUDE.md — 적응형 웹 자동화 엔진 v3
 
 ## 프로젝트 개요
 
-**LLM이 명령의 주체**인 적응형 웹 자동화 엔진.
-LLM이 사용자 의도를 분석하고, 실행 계획을 수립하며, 요소를 선택한다.
-성공한 셀렉터는 캐시되어 반복 실행 시 비용이 줄어든다 (LLM-First with Smart Caching).
+적응형 웹 자동화 엔진 v3. VLM이 스크린샷을 보고 계획, TextMatcher가 DOM 필터링, LLM이 요소 선택.
+성공 결과는 캐시 → Skill(Python 함수)로 진화하여 LLM 호출 0으로 수렴.
+
+**v3 핵심**: 4 모듈 + 1 캐시 (Planner → Extractor → Filter → Actor → Executor, Cache 보조)
+**상세 설계**: `docs/new_arch.md` (전체 아키텍처 문서)
+
+## 현재 개발 단계: Week 1-2 — DOM Extractor + Element Filter + TextMatcher
+
+### 이번 단계 목표
+- `src/core/browser.py`: Playwright + CDP 하이브리드 래퍼 (실행=Playwright, 추출=CDP)
+- `src/core/dom_extractor.py`: CDP `DOM.getDocument(depth=-1, pierce=True)` + `Accessibility.getFullAXTree` 병렬 추출
+- `src/core/text_matcher.py`: keyword_weights 기반 다국어 텍스트 매칭 (Snowball Stemmer + mecab-ko + fugashi + jieba)
+- `src/core/element_filter.py`: TextMatcher로 DOMNode 필터링 → ScoredNode 리스트 반환
+
+### v3 핵심 데이터 타입 (types.py에 추가)
+```python
+@dataclass
+class DOMNode:
+    node_id: int; tag: str; text: str; attrs: dict[str, str]
+    ax_role: str | None; ax_name: str | None
+
+@dataclass
+class ScoredNode:
+    node: DOMNode; score: float
+
+@dataclass
+class StepPlan:
+    step_index: int; action_type: str; target_description: str
+    keyword_weights: dict[str, float]; target_viewport_xy: tuple[float, float] | None
+    value: str | None; expected_result: str | None
+```
+
+### 테스트 기준
+- 네이버쇼핑 DOM에서 "검색창" 요소를 keyword_weights={"검색": 1.0, "query": 0.8}로 찾을 수 있는가
+- CDP 추출이 Shadow DOM, iframe을 포함하는가
+- 한국어/영어/일본어 텍스트 매칭이 정확한가
 
 ## 아키텍처 원칙 (v3 — LLM-First)
 

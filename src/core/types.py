@@ -6,14 +6,14 @@ See docs/PRD.md and docs/ARCHITECTURE.md for design rationale.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
 from playwright.async_api import Page
 
 # ── Failure Codes ────────────────────────────────────
 
-class FailureCode(str, Enum):
+class FailureCode(StrEnum):
     """Failure classification codes used by F(Fallback Router)."""
     SELECTOR_NOT_FOUND = "SelectorNotFound"
     NOT_INTERACTABLE = "NotInteractable"
@@ -84,6 +84,185 @@ class BudgetExceededError(AutomationError):
     """Token/cost budget exceeded for this task."""
 
 
+# ── v3 Data Types ────────────────────────────────────
+
+
+@dataclass
+class DOMNode:
+    """A DOM node extracted via CDP.
+
+    Attributes:
+        node_id: CDP backend node ID.
+        tag: HTML tag name (lowercase).
+        text: Visible text content (truncated to 500 chars).
+        attrs: HTML attributes as key-value pairs.
+        ax_role: Accessibility role from AX tree.
+        ax_name: Accessibility name from AX tree.
+    """
+    node_id: int
+    tag: str
+    text: str
+    attrs: dict[str, str] = field(default_factory=dict)
+    ax_role: str | None = None
+    ax_name: str | None = None
+
+
+@dataclass
+class ScoredNode:
+    """A DOM node with a relevance score from TextMatcher.
+
+    Attributes:
+        node: The underlying DOM node.
+        score: TextMatcher relevance score (higher = more relevant).
+    """
+    node: DOMNode
+    score: float = 0.0
+
+
+@dataclass
+class ScreenState:
+    """Current screen state detected by VLM.
+
+    Attributes:
+        has_obstacle: Whether an obstacle blocks interaction.
+        obstacle_type: Type of obstacle (popup, ad_banner, cookie_consent, etc).
+        obstacle_close_xy: Viewport coordinates to close the obstacle.
+        obstacle_description: Human-readable description.
+    """
+    has_obstacle: bool = False
+    obstacle_type: str | None = None
+    obstacle_close_xy: tuple[float, float] | None = None
+    obstacle_description: str | None = None
+
+
+@dataclass
+class StepPlan:
+    """A single step planned by the Planner.
+
+    Attributes:
+        step_index: Step position in the plan.
+        action_type: Action to perform (click, fill, scroll, hover, etc).
+        target_description: Natural language description of the target.
+        value: Input value for fill/type actions.
+        keyword_weights: TextMatcher keywords with weights.
+        target_viewport_xy: Estimated viewport coordinates (0~1 normalized).
+        expected_result: Description of expected outcome for verification.
+    """
+    step_index: int
+    action_type: str
+    target_description: str
+    value: str | None = None
+    keyword_weights: dict[str, float] = field(default_factory=dict)
+    target_viewport_xy: tuple[float, float] | None = None
+    expected_result: str | None = None
+
+
+@dataclass
+class Action:
+    """An action to execute on the browser.
+
+    Attributes:
+        selector: CSS selector for the target element.
+        action_type: Action to perform.
+        value: Input value for fill/type.
+        viewport_xy: Viewport coordinates as fallback.
+        viewport_bbox: Bounding box for the target element.
+    """
+    selector: str | None
+    action_type: str
+    value: str | None = None
+    viewport_xy: tuple[float, float] | None = None
+    viewport_bbox: tuple[float, float, float, float] | None = None
+
+
+@dataclass
+class CacheEntry:
+    """Cached execution result for repeat runs.
+
+    Attributes:
+        domain: Website domain.
+        url_pattern: URL pattern for matching.
+        task_type: Task description for matching.
+        selector: CSS selector that worked.
+        action_type: Action type.
+        value: Action value.
+        keyword_weights: Keywords used for matching.
+        viewport_xy: Viewport coordinates.
+        viewport_bbox: Bounding box.
+        expected_result: Expected outcome description.
+        post_screenshot_path: Path to post-action screenshot.
+        post_screenshot_phash: Perceptual hash of post-action screenshot.
+        success_count: Number of successful uses.
+        last_success: Timestamp of last success.
+    """
+    domain: str
+    url_pattern: str
+    task_type: str
+    selector: str | None
+    action_type: str
+    value: str | None = None
+    keyword_weights: dict[str, float] = field(default_factory=dict)
+    viewport_xy: tuple[float, float] | None = None
+    viewport_bbox: tuple[float, float, float, float] | None = None
+    expected_result: str | None = None
+    post_screenshot_path: str = ""
+    post_screenshot_phash: str = ""
+    success_count: int = 0
+    last_success: str | None = None
+
+
+@dataclass
+class Skill:
+    """A synthesized Python function from successful execution.
+
+    Attributes:
+        name: Function name.
+        domain: Website domain.
+        task_pattern: Task description pattern.
+        code: Python async function source code.
+        success_count: Number of successful executions.
+        last_success: Timestamp of last success.
+        created_at: Creation timestamp.
+    """
+    name: str
+    domain: str
+    task_pattern: str
+    code: str
+    success_count: int = 0
+    last_success: str | None = None
+    created_at: str = ""
+
+
+@dataclass
+class Detection:
+    """A detected UI element from local object detection.
+
+    Attributes:
+        box: Bounding box as (x1, y1, x2, y2).
+        confidence: Detection confidence score.
+    """
+    box: tuple[float, float, float, float]
+    confidence: float
+
+
+@dataclass
+class V3StepResult:
+    """Result of a single step execution in v3 pipeline.
+
+    Attributes:
+        step: The planned step.
+        action: The action that was executed.
+        success: Whether the step succeeded.
+        pre_url: URL before the action.
+        post_url: URL after the action.
+    """
+    step: StepPlan
+    action: Action
+    success: bool
+    pre_url: str
+    post_url: str
+
+
 # ── Data Types ───────────────────────────────────────
 
 @dataclass(frozen=True)
@@ -98,6 +277,7 @@ class ExtractedElement:
         bbox: Bounding box as (x, y, width, height).
         visible: Whether the element is currently visible.
         parent_context: Semantic context from parent container.
+        landmark: Landmark region tag (nav, header, footer, aside, main, section).
     """
     eid: str
     type: str
@@ -106,6 +286,7 @@ class ExtractedElement:
     bbox: tuple[int, int, int, int] = (0, 0, 0, 0)
     visible: bool = True
     parent_context: str | None = None
+    landmark: str | None = None
 
 
 @dataclass(frozen=True)
@@ -131,6 +312,8 @@ class PageState:
         element_count: Total interactive element count.
         has_popup: Whether a modal/popup is detected.
         has_captcha: Whether a CAPTCHA is detected.
+        dialog_text: Text content from ARIA dialog elements (for LLM context).
+        iframe_count: Number of iframes on the page (structural CAPTCHA signal).
         scroll_position: Current scroll Y offset.
     """
     url: str
@@ -139,6 +322,8 @@ class PageState:
     element_count: int = 0
     has_popup: bool = False
     has_captcha: bool = False
+    dialog_text: str = ""
+    iframe_count: int = 0
     scroll_position: int = 0
 
 
@@ -200,7 +385,9 @@ class WaitCondition:
 @dataclass(frozen=True)
 class VerifyCondition:
     """Condition to verify after an action."""
-    type: str  # url_changed, url_contains, element_visible, element_gone, text_present, network_idle
+    # url_changed, url_contains, element_visible,
+    # element_gone, text_present, network_idle
+    type: str
     value: str = ""
     timeout_ms: int = 5000
 
@@ -249,11 +436,12 @@ class StepDefinition:
     """A single step in a workflow."""
     step_id: str
     intent: str
-    node_type: str = "action"  # action, extract, decide, verify, branch, loop, wait, recover, handoff
+    # action, extract, decide, verify, branch, loop, wait, recover, handoff
+    node_type: str = "action"
     selector: str | None = None
     arguments: list[str] = field(default_factory=list)
     verify_condition: VerifyCondition | None = None
-    max_attempts: int = 3
+    max_attempts: int = 5
     timeout_ms: int = 10000
 
 
@@ -319,7 +507,8 @@ class ILLMPlanner(Protocol):
     """LLM-based planning interface — L module."""
     async def plan(self, instruction: str) -> list[StepDefinition]: ...
     async def select(
-        self, candidates: list[ExtractedElement], intent: str
+        self, candidates: list[ExtractedElement], intent: str,
+        page_context: str = "",
     ) -> PatchData: ...
 
 
@@ -362,7 +551,7 @@ class ICoordMapper(Protocol):
 # ── Progress Callback Types ─────────────────────────
 
 
-class ProgressEvent(str, Enum):
+class ProgressEvent(StrEnum):
     """Events emitted during orchestration."""
 
     RUN_STARTED = "run_started"
