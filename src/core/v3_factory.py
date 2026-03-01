@@ -32,9 +32,11 @@ from src.core.text_matcher import TextMatcher
 from src.core.v3_adapters import GeminiTextAdapter, GeminiVisionAdapter
 from src.core.v3_executor import V3Executor
 from src.core.v3_orchestrator import V3Orchestrator
+from src.learning.site_knowledge import SiteKnowledgeStore
 from src.vision.canvas_detector import CanvasDetector
 from src.vision.canvas_executor import CanvasExecutor
 from src.vision.local_detector import LocalDetector
+from src.vision.visual_judge import VisualJudge
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +113,15 @@ def create_v3_pipeline(
         ttl_days=config.v3_pipeline.cache_ttl_days,
     )
 
+    # Local detector (shared by CanvasExecutor and VisualJudge)
+    local_detector = LocalDetector(backend=None)
+
+    # Site knowledge store (per-domain MD cache)
+    site_knowledge = SiteKnowledgeStore()
+
+    # Visual judge (YOLO → VLM escalation)
+    visual_judge = VisualJudge(yolo=local_detector, vlm=vlm_adapter)
+
     # Orchestrator
     orchestrator = V3Orchestrator(
         planner=planner,
@@ -120,6 +131,8 @@ def create_v3_pipeline(
         executor=executor,
         cache=cache,
         verifier=verifier,
+        visual_judge=visual_judge,
+        site_knowledge=site_knowledge,
     )
 
     # Retry handler
@@ -133,7 +146,6 @@ def create_v3_pipeline(
     if config.canvas.canvas_threshold != 5:
         canvas_detector.CANVAS_THRESHOLD = config.canvas.canvas_threshold
 
-    local_detector = LocalDetector(backend=None)
     canvas_executor = CanvasExecutor(
         local_detector=local_detector,
         vlm=vlm_adapter,

@@ -8,8 +8,10 @@ from src.core.cache import InMemoryCacheDB
 from src.core.config import CanvasConfig, EngineConfig, V3PipelineConfig
 from src.core.v3_factory import V3Pipeline, create_v3_pipeline
 from src.core.v3_orchestrator import V3Orchestrator
+from src.learning.site_knowledge import SiteKnowledgeStore
 from src.vision.canvas_detector import CanvasDetector
 from src.vision.canvas_executor import CanvasExecutor
+from src.vision.visual_judge import VisualJudge
 
 
 class TestCreateV3Pipeline:
@@ -70,3 +72,17 @@ class TestCreateV3Pipeline:
         assert pipeline.retry_handler is not None
         assert pipeline.skill_synthesizer is not None
         assert pipeline.config is not None
+
+    def test_orchestrator_has_visual_judge(self) -> None:
+        vlm = AsyncMock()
+        text = AsyncMock()
+        pipeline = create_v3_pipeline(vlm_adapter=vlm, text_adapter=text)
+        assert pipeline.orchestrator.visual_judge is not None
+        assert isinstance(pipeline.orchestrator.visual_judge, VisualJudge)
+
+    def test_orchestrator_has_site_knowledge(self) -> None:
+        vlm = AsyncMock()
+        text = AsyncMock()
+        pipeline = create_v3_pipeline(vlm_adapter=vlm, text_adapter=text)
+        assert pipeline.orchestrator.site_knowledge is not None
+        assert isinstance(pipeline.orchestrator.site_knowledge, SiteKnowledgeStore)
