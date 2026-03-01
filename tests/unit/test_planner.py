@@ -294,3 +294,143 @@ class TestExtractJsonArray:
         # Should handle gracefully
         result = _extract_json_array('[{"a": 1}')
         assert result is None
+
+
+class TestPlannerPromptManager:
+    async def test_plan_uses_prompt_manager(self) -> None:
+        """Planner loads plan prompt from PromptManager when available."""
+        from src.ai.prompt_manager import PromptManager
+
+        pm = PromptManager()
+        vlm = AsyncMock()
+        vlm.generate_with_image = AsyncMock(return_value="[]")
+        planner = Planner(vlm=vlm, prompt_manager=pm)
+
+        await planner.plan("테스트 태스크", b"screenshot")
+
+        prompt = vlm.generate_with_image.call_args[0][0]
+        assert "테스트 태스크" in prompt
+        assert "visual_filter" in prompt
+
+    async def test_check_screen_uses_prompt_manager(self) -> None:
+        """Planner loads check_screen prompt from PromptManager."""
+        from src.ai.prompt_manager import PromptManager
+
+        pm = PromptManager()
+        vlm = AsyncMock()
+        vlm.generate_with_image = AsyncMock(
+            return_value='{"has_obstacle": false}',
+        )
+        planner = Planner(vlm=vlm, prompt_manager=pm)
+
+        state = await planner.check_screen(b"screenshot")
+        assert not state.has_obstacle
+
+        prompt = vlm.generate_with_image.call_args[0][0]
+        assert "obstacle" in prompt
+
+    async def test_fallback_when_no_prompt_manager(self) -> None:
+        """Planner uses inline prompts when PromptManager is None."""
+        vlm = AsyncMock()
+        vlm.generate_with_image = AsyncMock(return_value="[]")
+        planner = Planner(vlm=vlm)  # No prompt_manager
+
+        await planner.plan("fallback test", b"screenshot")
+
+        prompt = vlm.generate_with_image.call_args[0][0]
+        assert "fallback test" in prompt
+        assert "visual_filter" in prompt
+
+    async def test_fallback_when_prompt_not_registered(self) -> None:
+        """Planner falls back to inline if PromptManager lacks the prompt."""
+        from src.ai.prompt_manager import PromptManager
+        from pathlib import Path
+
+        # Empty dir → no prompts loaded
+        pm = PromptManager(prompts_dir=Path("/tmp/nonexistent_prompts_dir"))
+        vlm = AsyncMock()
+        vlm.generate_with_image = AsyncMock(return_value="[]")
+        planner = Planner(vlm=vlm, prompt_manager=pm)
+
+        await planner.plan("missing prompt", b"screenshot")
+
+        prompt = vlm.generate_with_image.call_args[0][0]
+        assert "missing prompt" in prompt
+
+
+class TestPlannerSiteKnowledge:
+    async def test_plan_with_site_knowledge(self) -> None:
+        vlm = AsyncMock()
+        vlm.generate_with_image = AsyncMock(return_value="[]")
+        planner = Planner(vlm=vlm)
+
+        await planner.plan(
+            "검색 버튼 클릭", b"screenshot",
+            site_knowledge="## 메뉴\n- hover로 탐색",
+        )
+
+        prompt = vlm.generate_with_image.call_args[0][0]
+        assert "메뉴" in prompt
+        assert "hover" in prompt
+
+    async def test_plan_without_site_knowledge(self) -> None:
+        vlm = AsyncMock()
+        vlm.generate_with_image = AsyncMock(return_value="[]")
+        planner = Planner(vlm=vlm)
+
+        await planner.plan("검색", b"screenshot")
+
+        prompt = vlm.generate_with_image.call_args[0][0]
+        assert "[사이트 지식]" not in prompt
+
+
+class TestPlannerVisualFilter:
+    async def test_parse_visual_filter_step(self) -> None:
+        vlm = AsyncMock()
+        vlm.generate_with_image = AsyncMock(return_value="""[
+            {
+                "step_index": 0,
+                "action_type": "visual_filter",
+                "target_description": "빨간색 상품 선택",
+                "visual_filter_query": "빨간색",
+                "visual_complexity": "simple",
+                "keyword_weights": {},
+                "target_viewport_xy": [0.5, 0.5]
+            }
+        ]""")
+        planner = Planner(vlm=vlm)
+        steps = await planner.plan("빨간색 찾기", b"screenshot")
+
+        assert len(steps) == 1
+        assert steps[0].action_type == "visual_filter"
+        assert steps[0].visual_filter_query == "빨간색"
+        assert steps[0].visual_complexity == "simple"
+
+    async def test_visual_filter_null_fields(self) -> None:
+        vlm = AsyncMock()
+        vlm.generate_with_image = AsyncMock(return_value=json.dumps([{
+            "step_index": 0,
+            "action_type": "click",
+            "target_description": "버튼",
+            "visual_filter_query": None,
+            "visual_complexity": None,
+            "keyword_weights": {"버튼": 0.9},
+            "target_viewport_xy": [0.5, 0.5],
+        }]))
+        planner = Planner(vlm=vlm)
+        steps = await planner.plan("버튼 클릭", b"screenshot")
+
+        assert len(steps) == 1
+        assert steps[0].visual_filter_query is None
+        assert steps[0].visual_complexity is None
+
+    async def test_prompt_contains_visual_filter_guidance(self) -> None:
+        vlm = AsyncMock()
+        vlm.generate_with_image = AsyncMock(return_value="[]")
+        planner = Planner(vlm=vlm)
+        await planner.plan("빨간색 상품 찾기", b"img")
+
+        prompt = vlm.generate_with_image.call_args[0][0]
+        assert "visual_filter" in prompt
+        assert "visual_filter_query" in prompt
+        assert "visual_complexity" in prompt

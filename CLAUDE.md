@@ -8,21 +8,25 @@
 **v3 핵심**: 4 모듈 + 1 캐시 (Planner → Extractor → Filter → Actor → Executor, Cache 보조)
 **상세 설계**: `docs/new_arch.md` (전체 아키텍처 문서)
 
-## 현재 개발 단계: Week 4 — Planner (VLM + Screenshot)
+## 현재 개발 단계: v3 파이프라인 라이브 운영 + 최적화
 
 ### 완료된 단계
 - **Week 1-2**: Browser, DOMExtractor, TextMatcher, ElementFilter + 100 tests ✅
 - **Week 3**: Actor, V3Executor, ResultVerifier + 48 tests ✅
+- **Week 4**: Planner (VLM + Screenshot) — check_screen + plan ✅
+- **Week 5**: V3Orchestrator (full pipeline) — 캐시, lazy replan, hover followup ✅
+- **Week 6**: Site Knowledge + VisualJudge + RF-DETR — 사이트 학습, 시각 판별 ✅
+- **Week 7**: Planner 프롬프트 강화 + 프롬프트 버전닝 + 구조화 출력 ✅
 
-### 이번 단계 목표
-- `src/core/planner.py`: VLM 스크린샷 기반 계획 — 장애물 감지 + 스텝 분해 + keyword_weights 생성
-- Gemini Flash VLM 사용 (기존 모델명 유지)
-- 1회 호출로 장애물 확인 + 스텝 분해 동시 처리
+### 라이브 테스트 결과
+- **Danawa 8-step flow**: SUCCESS 8/8, $0.0079, 288s
+- **Wikipedia Python 검색**: SUCCESS 2/2, $0.0019, 37s
 
-### 핵심 설계
+### 핵심 설계 (v3 Planner)
 - `check_screen(screenshot)` → ScreenState (장애물 감지)
-- `plan(task, screenshot)` → list[StepPlan] (스텝 분해 + keyword_weights + viewport_xy)
-- 프롬프트: 화면 상태 확인 → 태스크 분해 → keyword_weights + target_viewport_xy 출력
+- `plan(task, screenshot, site_knowledge)` → list[StepPlan] (스텝 분해 + keyword_weights + viewport_xy)
+- 프롬프트 버전닝: `config/prompts/v3_plan/v1.txt` (PromptManager 로드, 인라인 폴백)
+- 구조화 출력: Gemini `response_mime_type="application/json"` (json_mode)
 
 ## 아키텍처 원칙 (v3 — LLM-First)
 
@@ -105,25 +109,32 @@ web-agentic/
 ├── src/
 │   ├── web_agent.py          # SDK Facade (WebAgent)
 │   ├── core/
-│   │   ├── orchestrator.py   # 오케스트레이터 (메인 루프) — v3에서 LLM-First로 전환 필요
-│   │   ├── executor.py       # X — Playwright 래퍼 (+ 스텔스/행동 위임)
-│   │   ├── executor_pool.py  # 세션 풀 (브라우저 재사용, 스텔스 지원)
-│   │   ├── extractor.py      # E — DOM→JSON 변환
-│   │   ├── rule_engine.py    # R — v3에서 "캐시 저장소"로 역할 전환 필요
-│   │   ├── verifier.py       # V — 검증기
-│   │   ├── fallback_router.py # F — 실패 분류 + 에스컬레이션 체인 (오케스트레이터 연결됨)
-│   │   ├── stealth.py        # 브라우저 스텔스 패치 (JS init scripts)
-│   │   ├── human_behavior.py # 마우스/타이핑/스크롤 휴먼 시뮬레이션
-│   │   ├── navigation.py     # 레이트리밋, robots.txt, 홈페이지 워밍
+│   │   ├── v3_orchestrator.py # v3 메인 루프 (Cache→Plan→Filter→Act→Verify)
+│   │   ├── v3_factory.py     # v3 파이프라인 조립 (DI 배선)
+│   │   ├── v3_adapters.py    # Gemini SDK → v3 Protocol 어댑터 (json_mode 지원)
+│   │   ├── v3_executor.py    # v3 Playwright 실행기
+│   │   ├── planner.py        # VLM 스크린샷 기반 계획 (PromptManager DI)
+│   │   ├── actor.py          # LLM 요소 선택 (후보 → 최적 요소)
+│   │   ├── browser.py        # Playwright + CDP 하이브리드 래퍼
+│   │   ├── dom_extractor.py  # DOM → JSON 변환 (CDP)
+│   │   ├── element_filter.py # keyword_weights × DOM 텍스트 스코어링
+│   │   ├── text_matcher.py   # 다국어 텍스트 매칭 (Prune4Web)
+│   │   ├── result_verifier.py # 액션 후 결과 검증 (URL/DOM/pHash)
+│   │   ├── cache.py          # 셀렉터+viewport 캐시 (SQLite/InMemory)
+│   │   ├── retry_handler.py  # VLM 기반 재시도 판단
+│   │   ├── skill_synthesizer.py # 성공 trajectory → Python 함수 합성
+│   │   ├── orchestrator.py   # Legacy 오케스트레이터
+│   │   ├── executor.py       # Legacy Playwright 래퍼 (+ 스텔스/행동)
+│   │   ├── executor_pool.py  # 세션 풀 (브라우저 재사용)
+│   │   ├── extractor.py      # Legacy DOM→JSON 변환
+│   │   ├── rule_engine.py    # Legacy 규칙 엔진 (캐시 저장소)
+│   │   ├── verifier.py       # Legacy 검증기
+│   │   ├── fallback_router.py # 실패 분류 + 에스컬레이션
+│   │   ├── stealth.py        # 브라우저 스텔스 패치 (JS)
+│   │   ├── human_behavior.py # 마우스/타이핑/스크롤 시뮬레이션
+│   │   ├── navigation.py     # 레이트리밋, robots.txt
 │   │   ├── config.py         # YAML → dataclass 설정 로더
-│   │   ├── checkpoint.py     # 스크린샷 checkpoint 평가 (go/not_go/ask_user)
-│   │   ├── resilience.py     # 병렬 시나리오 실행 + 복구 + 롤백
-│   │   ├── adaptive_controller.py # 반복 의도 감지 + 캐시 스텝 실행
-│   │   ├── executor_adapter.py    # IExecutor Protocol 재export + MockExecutor
-│   │   ├── retry_policy.py   # 재시도 정책 (non-retryable 코드 분류)
-│   │   ├── decision_port.py  # DecisionPort Protocol + Human Loop 드라이버
-│   │   ├── selector_recovery.py   # 셀렉터 자동 복구 파이프라인 (+ fingerprint 매칭)
-│   │   └── self_healing.py   # 6분류 실패 + 전용 힐링 전략
+│   │   └── types.py          # 공유 타입 (StepPlan, Action, DOMNode 등)
 │   ├── ai/
 │   │   ├── llm_planner.py    # L — LLM Planner (Flash/Pro) — ILLMProvider DI 지원
 │   │   ├── llm_provider.py   # ILLMProvider Protocol + Gemini/OpenAI 구현
@@ -133,20 +144,25 @@ web-agentic/
 │   │   ├── patch_system.py   # 패치 생성/적용
 │   │   └── cascaded_router.py # Flash-first 라우팅 + Pro 에스컬레이션
 │   ├── vision/
+│   │   ├── visual_judge.py   # RF-DETR/YOLO → VLM 2단계 시각 판별
+│   │   ├── rfdetr_detector.py # RF-DETR async detector (IDetector)
+│   │   ├── local_detector.py # 로컬 탐지 래퍼 (RF-DETR/YOLO)
 │   │   ├── yolo_detector.py  # YOLO 로컬 추론
 │   │   ├── vlm_client.py     # VLM API 클라이언트
-│   │   ├── image_batcher.py  # 이미지 배칭 시스템
-│   │   ├── repeated_item_judgement.py # YOLO→VLM 반복 아이템 판별 체인
+│   │   ├── image_batcher.py  # 이미지 배칭 + 그리드 생성
+│   │   ├── canvas_detector.py # Canvas 페이지 탐지
+│   │   ├── canvas_executor.py # Vision-only Canvas 실행
+│   │   ├── repeated_item_judgement.py # YOLO→VLM 반복 아이템 판별
 │   │   └── coord_mapper.py   # 좌표 역추적
 │   ├── learning/
-│   │   ├── pattern_db.py     # 패턴 DB — v3에서 "셀렉터 캐시"로 용도 전환
-│   │   ├── rule_promoter.py  # v3에서 "캐시 저장 로직"으로 전환 + Canary Gate 연결
-│   │   ├── canary_gate.py    # 회귀 체크 기반 규칙 승격 게이트
-│   │   ├── replay_store.py   # 실행 이력 aiosqlite 저장소 (+ 키워드 퍼지 매칭)
-│   │   ├── element_fingerprint.py # Similo 다속성 fingerprint 매칭
-│   │   ├── plan_cache.py     # 키워드 추출 + 퍼지 매칭 + 플랜 적응
-│   │   ├── recipe_version.py # 셀렉터 레시피 버전 관리 + 패치 적용
-│   │   ├── dspy_optimizer.py # 프롬프트 최적화 placeholder (DSPy 미연동)
+│   │   ├── site_knowledge.py # 도메인별 JSON 사이트 지식 (LLM merge)
+│   │   ├── pattern_db.py     # 셀렉터 캐시
+│   │   ├── rule_promoter.py  # 캐시 저장 + Canary Gate
+│   │   ├── canary_gate.py    # 회귀 체크 기반 승격 게이트
+│   │   ├── replay_store.py   # 실행 이력 저장소
+│   │   ├── element_fingerprint.py # Similo fingerprint 매칭
+│   │   ├── plan_cache.py     # 플랜 퍼지 매칭 + 적응
+│   │   ├── recipe_version.py # 레시피 버전 관리
 │   │   └── memory_manager.py # 4계층 메모리
 │   ├── workflow/
 │   │   ├── dsl_parser.py     # YAML DSL 파서
@@ -161,11 +177,19 @@ web-agentic/
 │           ├── sessions.py   # 세션 API 라우트 + Chat 엔드포인트
 │           └── run.py        # 원샷 실행 API 라우트
 ├── config/
-│   ├── rules/                # YAML 규칙 — v3에서 "초기 캐시 시드"로 용도 전환
+│   ├── prompts/              # 버전별 프롬프트 템플릿
+│   │   ├── v3_check_screen/v1.txt  # 장애물 감지 프롬프트
+│   │   ├── v3_plan/v1.txt          # 태스크 분해 프롬프트
+│   │   ├── plan_steps/             # Legacy 계획 프롬프트
+│   │   ├── select_element/         # 요소 선택 프롬프트
+│   │   └── ...                     # 기타 (captcha, fix_selector 등)
+│   ├── rules/                # YAML 규칙 (초기 캐시 시드)
 │   ├── synonyms.yaml         # 동의어 사전
 │   └── settings.yaml         # 환경 설정
+├── data/
+│   └── site_knowledge/       # 도메인별 JSON 사이트 지식
 ├── tests/
-│   ├── unit/                 # 816 단위+통합 테스트
+│   ├── unit/                 # 1700+ 단위+통합 테스트
 │   ├── integration/
 │   └── e2e/                  # 36 E2E 브라우저 테스트
 └── scripts/
@@ -184,6 +208,9 @@ web-agentic/
 | Verifier | V | 사후 검증 | 사후 검증 (변경 없음) |
 | Fallback Router | F | 실패 분류 | **오케스트레이터 연결: 적응형 재시도 + 에스컬레이션** |
 | Vision (YOLO/VLM) | G | 미연결 플레이스홀더 | **LLM 신뢰도 < 0.7일 때 시각적 그라운딩** |
+| VisualJudge | - | - | **RF-DETR/YOLO → VLM 2단계 시각 속성 판별 (색상, 문양)** |
+| SiteKnowledgeStore | - | - | **도메인별 JSON 사이트 지식 저장/로드/LLM 병합** |
+| PromptManager | - | - | **프롬프트 버전 관리 (config/prompts/{name}/{ver}.txt)** |
 | PatternDB | - | 패턴 저장 | **셀렉터 캐시 (TTL 기반 유효성 관리)** |
 | WebAgent SDK | - | - | **High-level SDK facade** |
 | SessionManager | - | - | **Multi-turn session lifecycle** |
@@ -217,21 +244,27 @@ web-agentic/
 | Cascaded Router | - | - | **Flash-first 라우팅 + 성공률 추적 (비용 30-50% 절감)** |
 | Self-Healing | - | - | **6분류 실패 + 전용 힐링 전략 (timing/hidden/stale/nav/data)** |
 
-## v3 전환 시 필요한 작업
+## v3 완료된 전환 + 남은 작업
 
-### Phase 7: LLM-First 오케스트레이션 전환
-1. **Orchestrator 재설계**: execute_step() 플로우를 L→Cache→L+E→X→V로 전환
-2. **TaskPlanner 신규 모듈**: 사용자 의도 → atomic 스텝 분해 (LLM 기반)
-3. **RuleEngine → SelectorCache**: match() 대신 cache_lookup()/cache_save()
-4. **FallbackRouter → VisionRouter**: 실패 기반이 아닌 신뢰도 기반 라우팅
-5. **PatternDB TTL 추가**: 캐시된 셀렉터의 유효 기간 관리 (사이트 변경 대응)
+### 완료
+1. **V3Orchestrator**: Cache→Planner→Extractor→Filter→Actor→Execute→Verify 풀 파이프라인 ✅
+2. **Planner (VLM)**: 장애물 감지 + 스텝 분해 + keyword_weights + viewport_xy ✅
+3. **Site Knowledge**: 도메인별 JSON 지식 캐시 + LLM 병합 ✅
+4. **VisualJudge**: RF-DETR/YOLO → VLM 시각 판별 (visual_filter 액션) ✅
+5. **프롬프트 버전닝**: config/prompts/ 분리 + PromptManager DI ✅
+6. **구조화 출력**: Gemini json_mode (response_mime_type=application/json) ✅
 
-### 비용 모델 (v3 목표)
-- 의도 분해: ~$0.01/태스크 (한 번만, 캐시 가능)
-- 요소 선택: ~$0.002/스텝 (DOM 후보에서 선택)
+### 남은 작업
+1. **Skill Synthesis**: 성공 trajectory → Python 함수 합성 (LLM 0회 수렴)
+2. **PatternDB TTL**: 캐시된 셀렉터 유효 기간 관리
+3. **FallbackRouter → VisionRouter**: 신뢰도 기반 라우팅
+
+### 비용 모델 (v3 실측)
+- 의도 분해: ~$0.001/태스크 (VLM 1회)
+- 요소 선택: ~$0.0005/스텝 (DOM 후보에서 선택)
 - 캐시 히트: $0/스텝 (반복 실행)
-- Vision 폴백: ~$0.005/쿼리 (드물게)
-- **태스크당 총 목표: $0.02 이하** (새 사이트), **$0.005 이하** (반복)
+- Vision 폴백: ~$0.003/쿼리 (VLM 그리드)
+- **실측**: Danawa 8-step $0.008, Wikipedia 2-step $0.002
 
 ## 프로덕션 강화 (Production Hardening)
 
@@ -292,7 +325,7 @@ web-agentic/
 - 단위 테스트: 각 모듈의 순수 로직 (pytest)
 - 통합 테스트: 모듈 간 상호작용 (pytest-asyncio)
 - E2E 테스트: 실제 브라우저 시나리오 (playwright fixtures)
-- 현재: 1260 passed (1084 unit + 95 integration + 57 E2E + 24 skipped)
+- 현재: 1708 passed (unit + integration) + E2E 별도
 
 ### 검증 필수 사항 (반드시 준수)
 

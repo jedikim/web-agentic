@@ -63,12 +63,16 @@ class GeminiVisionAdapter:
     """Adapts Gemini SDK to v3 vision protocols (IPlannerVLM, IRetryVLM, etc.).
 
     Satisfies: async generate_with_image(prompt: str, image: bytes) -> str
+
+    When ``json_mode=True``, sets ``response_mime_type="application/json"``
+    so Gemini returns well-formed JSON without markdown fencing.
     """
 
     def __init__(
         self,
         model: str | None = None,
         api_key: str | None = None,
+        json_mode: bool = False,
     ) -> None:
         self._model = model or os.environ.get(
             "GEMINI_FLASH_MODEL", "gemini-3-flash-preview",
@@ -78,6 +82,7 @@ class GeminiVisionAdapter:
             or os.environ.get("GEMINI_API_KEY")
             or os.environ.get("GOOGLE_API_KEY", "")
         )
+        self._json_mode = json_mode
         self._client: Any = None
 
     def _get_client(self) -> Any:
@@ -93,6 +98,11 @@ class GeminiVisionAdapter:
         from google.genai import types as _types
 
         client = self._get_client()
+        config: _types.GenerateContentConfig | None = None
+        if self._json_mode:
+            config = _types.GenerateContentConfig(
+                response_mime_type="application/json",
+            )
         response = await client.aio.models.generate_content(
             model=self._model,
             contents=[
@@ -101,8 +111,58 @@ class GeminiVisionAdapter:
                     data=image, mime_type="image/png",
                 ),
             ],
+            config=config,
         )
         return response.text or ""
+
+    async def analyze_grid(
+        self,
+        grid_image: bytes,
+        intent: str,
+        cell_count: int,
+    ) -> list[dict[str, Any]]:
+        """VLM grid analysis — classify items against intent.
+
+        Satisfies IVLMGrid protocol for VisualJudge.
+        """
+        import json
+
+        last_idx = cell_count - 1
+        prompt = (
+            "You are analyzing a grid image containing multiple items.\n"
+            f"The grid has {cell_count} items labelled [0] to [{last_idx}].\n\n"
+            f"User intent: {intent}\n\n"
+            "For EACH item, evaluate whether it matches the intent.\n"
+            "Respond with a JSON array of objects, one per item:\n"
+            '[{"index": 0, "label": "item type/name", "confidence": 0.0-1.0, '
+            '"relevant": true/false, "description": "brief description", '
+            '"reason": "why relevant or not"}]\n\n'
+            f"Return ALL items in order [0] to [{last_idx}]."
+        )
+
+        raw = await self.generate_with_image(prompt, grid_image)
+
+        # Parse JSON from response (may have markdown fencing)
+        text = raw.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[-1]
+        if text.endswith("```"):
+            text = text.rsplit("```", 1)[0]
+        text = text.strip()
+
+        try:
+            results = json.loads(text)
+            if isinstance(results, list):
+                return results  # type: ignore[return-value]
+        except json.JSONDecodeError:
+            pass
+
+        # Fallback: return empty for all cells
+        return [
+            {"index": i, "label": "", "confidence": 0.0,
+             "relevant": False, "description": "", "reason": "parse_error"}
+            for i in range(cell_count)
+        ]
 
 
 class LLMProviderTextAdapter:

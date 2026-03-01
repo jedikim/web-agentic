@@ -19,6 +19,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from src.ai.prompt_manager import PromptManager
 from src.core.actor import Actor
 from src.core.cache import Cache, InMemoryCacheDB
 from src.core.config import EngineConfig
@@ -39,6 +40,27 @@ from src.vision.local_detector import LocalDetector
 from src.vision.visual_judge import VisualJudge
 
 logger = logging.getLogger(__name__)
+
+
+def _create_async_detector() -> Any:
+    """Try RF-DETR first, then YOLO. Returns None if neither available."""
+    try:
+        from src.vision.rfdetr_detector import RFDETRDetector
+        logger.info("VisualJudge detector: RF-DETR")
+        return RFDETRDetector()
+    except Exception:
+        pass
+
+    try:
+        from src.vision.yolo_detector import YOLODetector
+        det = YOLODetector()
+        logger.info("VisualJudge detector: YOLO")
+        return det
+    except Exception:
+        pass
+
+    logger.warning("VisualJudge: no async detector available, disabling")
+    return None
 
 
 @dataclass
@@ -86,6 +108,7 @@ def create_v3_pipeline(
     if vlm_adapter is None:
         vlm_adapter = GeminiVisionAdapter(
             model=config.llm.flash_model,
+            json_mode=True,
         )
     if text_adapter is None:
         text_adapter = GeminiTextAdapter(
@@ -96,8 +119,11 @@ def create_v3_pipeline(
         model=config.llm.pro_model,
     )
 
+    # Prompt manager (versioned prompts from config/prompts/)
+    prompt_manager = PromptManager()
+
     # Core v3 components
-    planner = Planner(vlm=vlm_adapter)
+    planner = Planner(vlm=vlm_adapter, prompt_manager=prompt_manager)
     extractor = DOMExtractor()
     text_matcher = TextMatcher()
     element_filter = ElementFilter(matcher=text_matcher)
@@ -113,14 +139,22 @@ def create_v3_pipeline(
         ttl_days=config.v3_pipeline.cache_ttl_days,
     )
 
-    # Local detector (shared by CanvasExecutor and VisualJudge)
+    # Local detector (for CanvasExecutor — sync interface)
     local_detector = LocalDetector(backend=None)
 
     # Site knowledge store (per-domain MD cache)
     site_knowledge = SiteKnowledgeStore()
 
-    # Visual judge (YOLO → VLM escalation)
-    visual_judge = VisualJudge(yolo=local_detector, vlm=vlm_adapter)
+    # Async detector for VisualJudge (IDetector protocol: async detect(bytes))
+    async_detector: Any = _create_async_detector()
+
+    # Visual judge (RF-DETR/YOLO → VLM escalation)
+    visual_judge: Any = None
+    if async_detector is not None:
+        visual_judge = VisualJudge(
+            detector=async_detector,
+            vlm=vlm_adapter,
+        )
 
     # Orchestrator
     orchestrator = V3Orchestrator(
@@ -133,6 +167,7 @@ def create_v3_pipeline(
         verifier=verifier,
         visual_judge=visual_judge,
         site_knowledge=site_knowledge,
+        knowledge_llm=text_adapter,
     )
 
     # Retry handler

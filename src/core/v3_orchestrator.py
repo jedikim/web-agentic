@@ -17,11 +17,12 @@ Retry: 2 consecutive failures → replan from current screen.
 Max replan: 2 times per step group (failure-based).
 Max progressive replan: 5 times (navigation/state-based).
 
-Safety: total timeout (420s) and API call budget (60 calls) prevent runaway.
+Safety: total timeout (600s) and API call budget (60 calls) prevent runaway.
 """
 
 from __future__ import annotations
 
+import base64
 import logging
 import time
 from dataclasses import dataclass, field
@@ -30,7 +31,8 @@ from urllib.parse import urlparse
 
 from src.core.browser import Browser
 from src.core.cache import Cache
-from src.core.types import Action, CacheEntry, StepPlan
+from src.core.types import Action, CacheEntry, ProgressEvent, ProgressInfo, StepPlan
+from src.learning.site_knowledge import SiteKnowledgeStore, extract_domain
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +53,8 @@ class V3StepOutcome:
         method: Resolution method (cache/selector/viewport).
         latency_ms: Step execution time.
         cost_usd: Estimated cost (0 for cached).
+        screenshot_b64: Base64-encoded screenshot after step success.
+        actor: Who executed: Cache, VLM Planner, LLM Actor, VisualJudge, Executor.
     """
 
     step_id: str = ""
@@ -59,6 +63,8 @@ class V3StepOutcome:
     tokens_used: int = 0
     latency_ms: float = 0.0
     cost_usd: float = 0.0
+    screenshot_b64: str = ""
+    actor: str = ""
 
 
 @dataclass
@@ -88,16 +94,22 @@ MAX_RETRY_PER_STEP = 2
 MAX_REPLAN = 2
 MAX_PROGRESSIVE_REPLAN = 5  # Re-plan after page/state changes
 MAX_API_CALLS = 60
-DEFAULT_TIMEOUT_S = 420.0
-# Actions that don't change page structure — skip replan check
-_PASSIVE_ACTIONS = frozenset({"type", "fill", "wait"})
+DEFAULT_TIMEOUT_S = 600.0
+# Actions that don't change page structure — skip replan check.
+# type/fill excluded: after input, page may need apply/submit action.
+_PASSIVE_ACTIONS = frozenset({"wait"})
+# Actions that need stabilization wait before DOM check
+_INPUT_ACTIONS = frozenset({"type", "fill"})
 
 
 class IPlanner(Protocol):
     """Planner interface for orchestrator."""
 
     async def check_screen(self, screenshot: bytes) -> object: ...
-    async def plan(self, task: str, screenshot: bytes) -> list[StepPlan]: ...
+    async def plan(
+        self, task: str, screenshot: bytes,
+        site_knowledge: str = "",
+    ) -> list[StepPlan]: ...
 
 
 class IExtractor(Protocol):
@@ -164,6 +176,10 @@ class V3Orchestrator:
         verifier: IVerifier,
         timeout_s: float = DEFAULT_TIMEOUT_S,
         max_api_calls: int = MAX_API_CALLS,
+        visual_judge: Any | None = None,
+        site_knowledge: SiteKnowledgeStore | None = None,
+        progress_callback: Any | None = None,
+        knowledge_llm: Any | None = None,
     ) -> None:
         self.planner = planner
         self.extractor = extractor
@@ -174,12 +190,17 @@ class V3Orchestrator:
         self.verifier = verifier
         self._timeout_s = timeout_s
         self._max_api_calls = max_api_calls
+        self.visual_judge = visual_judge
+        self.site_knowledge = site_knowledge
+        self._progress_callback = progress_callback
+        self._knowledge_llm = knowledge_llm
 
         # Runtime counters (reset per run)
         self._run_start: float = 0.0
         self._api_calls: int = 0
         self._total_tokens: int = 0
         self._total_cost: float = 0.0
+        self._last_actor: str = ""
 
     def _check_budget(self) -> None:
         """Raise if timeout or API call budget exceeded."""
@@ -192,6 +213,21 @@ class V3Orchestrator:
             raise _BudgetExceededError(
                 f"API budget: {self._api_calls} >= {self._max_api_calls}"
             )
+
+    def _emit(self, info: ProgressInfo) -> None:
+        """Emit progress event if callback is set."""
+        if self._progress_callback is not None:
+            try:
+                self._progress_callback.on_progress(info)
+            except Exception:
+                pass
+
+    def _get_site_knowledge(self, url: str) -> str:
+        """Load site knowledge MD for the current domain."""
+        if not self.site_knowledge:
+            return ""
+        domain = extract_domain(url)
+        return self.site_knowledge.load(domain)
 
     def _track_vlm_call(self) -> None:
         """Track a VLM API call."""
@@ -226,8 +262,11 @@ class V3Orchestrator:
             screenshot = await browser.screenshot()
             self._check_budget()
 
+            site_knowledge_str = self._get_site_knowledge(browser.url)
             logger.info("Planning task...")
-            steps = await self.planner.plan(task, screenshot)
+            steps = await self.planner.plan(
+                task, screenshot, site_knowledge=site_knowledge_str,
+            )
             self._track_vlm_call()
 
             if not steps:
@@ -240,7 +279,7 @@ class V3Orchestrator:
                 " → ".join(s.target_description for s in steps),
             )
 
-            return await self._run_loop(task, steps, browser)
+            return await self._run_loop(task, steps, browser, site_knowledge_str)
 
         except _BudgetExceededError as exc:
             logger.error("Budget exceeded: %s", exc)
@@ -300,6 +339,7 @@ class V3Orchestrator:
         self._api_calls = 0
         self._total_tokens = 0
         self._total_cost = 0.0
+        self._last_actor = ""
         step_outcomes: list[V3StepOutcome] = []
 
         logger.info("▶ v3 run_with_result: %s", task)
@@ -308,8 +348,11 @@ class V3Orchestrator:
             screenshot = await browser.screenshot()
             self._check_budget()
 
+            site_knowledge_str = self._get_site_knowledge(browser.url)
             logger.info("Planning task...")
-            steps = await self.planner.plan(task, screenshot)
+            steps = await self.planner.plan(
+                task, screenshot, site_knowledge=site_knowledge_str,
+            )
             self._track_vlm_call()
 
             if not steps:
@@ -325,10 +368,19 @@ class V3Orchestrator:
                 " → ".join(s.target_description for s in steps),
             )
 
+            self._emit(ProgressInfo(
+                event=ProgressEvent.RUN_STARTED,
+                total_steps=len(steps),
+                message=f"Plan: {len(steps)} steps",
+            ))
+
             replan_count = 0
             progressive_replan_count = 0
             consecutive_failures = 0
             completed_descs: list[str] = []
+            completed_steps: list[StepPlan] = []
+            failed_descs: list[str] = []
+            failed_step_pairs: list[tuple[StepPlan, str]] = []
             task_done = False
 
             while not task_done:
@@ -345,16 +397,53 @@ class V3Orchestrator:
                         steps[i].target_description,
                     )
 
+                    self._emit(ProgressInfo(
+                        event=ProgressEvent.STEP_STARTED,
+                        step_id=steps[i].target_description,
+                        step_index=i,
+                        total_steps=len(steps),
+                        message=f"[{steps[i].action_type}] {steps[i].target_description}",
+                    ))
+
                     success = await self._execute_step(steps[i], browser)
                     step_ms = (time.monotonic() - step_start) * 1000
 
-                    step_outcomes.append(V3StepOutcome(
+                    # Capture screenshot after successful step
+                    step_screenshot_b64 = ""
+                    if success:
+                        try:
+                            raw_ss = await browser.screenshot()
+                            step_screenshot_b64 = base64.b64encode(
+                                raw_ss,
+                            ).decode("ascii")
+                        except Exception:
+                            pass
+
+                    outcome = V3StepOutcome(
                         step_id=steps[i].target_description,
                         success=success,
                         method="cache" if success else "v3",
                         latency_ms=step_ms,
                         tokens_used=_VLM_TOKENS_EST,
                         cost_usd=_VLM_COST_EST if not success else 0.0,
+                        screenshot_b64=step_screenshot_b64,
+                        actor=self._last_actor,
+                    )
+                    step_outcomes.append(outcome)
+
+                    self._emit(ProgressInfo(
+                        event=(ProgressEvent.STEP_COMPLETED if success
+                               else ProgressEvent.STEP_FAILED),
+                        step_id=steps[i].target_description,
+                        step_index=i,
+                        total_steps=len(steps),
+                        method=outcome.method,
+                        message=f"{'OK' if success else 'FAIL'} ({step_ms:.0f}ms)",
+                        screenshot_b64=step_screenshot_b64,
+                        actor=self._last_actor,
+                        cost_usd=outcome.cost_usd,
+                        latency_ms=step_ms,
+                        success=success,
                     ))
 
                     if success:
@@ -362,6 +451,7 @@ class V3Orchestrator:
                             "  ✓ Step %d OK (%.0fms)", i + 1, step_ms,
                         )
                         completed_descs.append(steps[i].target_description)
+                        completed_steps.append(steps[i])
                         consecutive_failures = 0
 
                         # Lazy replan: URL change OR next step not in DOM
@@ -392,12 +482,23 @@ class V3Orchestrator:
                             )
                             steps = await self.planner.plan(
                                 f"{task} ({completed_str})", screenshot,
+                                site_knowledge=site_knowledge_str,
                             )
                             self._track_vlm_call()
 
                             if not steps:
                                 logger.info(
                                     "Replan returned no steps — task done",
+                                )
+                                task_done = True
+                                break
+                            # Deduplicate against completed steps
+                            steps = self._dedup_steps(
+                                steps, completed_descs,
+                            )
+                            if not steps:
+                                logger.info(
+                                    "All replanned steps already completed",
                                 )
                                 task_done = True
                                 break
@@ -420,6 +521,12 @@ class V3Orchestrator:
                     )
 
                     if consecutive_failures >= 2:
+                        failed_descs.append(
+                            steps[i].target_description,
+                        )
+                        failed_step_pairs.append(
+                            (steps[i], "consecutive failure"),
+                        )
                         if replan_count < MAX_REPLAN:
                             replan_count += 1
                             logger.info(
@@ -434,15 +541,35 @@ class V3Orchestrator:
                             completed_str = self._completed_summary(
                                 completed_descs,
                             )
+                            failed_hint = ""
+                            if failed_descs:
+                                failed_hint = (
+                                    ", 실패한 접근(다른 방법 시도): "
+                                    + ", ".join(
+                                        dict.fromkeys(failed_descs),
+                                    )
+                                )
                             steps = await self.planner.plan(
                                 f"{task} ({completed_str},"
-                                f" 남은 작업: {remaining})",
+                                f" 남은 작업: {remaining}"
+                                f"{failed_hint})",
                                 screenshot,
+                                site_knowledge=site_knowledge_str,
                             )
                             self._track_vlm_call()
 
                             if not steps:
                                 logger.warning("Replan returned no steps")
+                                task_done = True
+                                break
+                            # Deduplicate against completed steps
+                            steps = self._dedup_steps(
+                                steps, completed_descs,
+                            )
+                            if not steps:
+                                logger.info(
+                                    "All replanned steps already completed",
+                                )
                                 task_done = True
                                 break
                             logger.info(
@@ -507,12 +634,23 @@ class V3Orchestrator:
                                 " (kw=%s, %.0fms)",
                                 desc, kw, step_ms,
                             )
+                            # Capture screenshot after hover followup
+                            hover_ss_b64 = ""
+                            try:
+                                hover_ss = await browser.screenshot()
+                                hover_ss_b64 = base64.b64encode(
+                                    hover_ss,
+                                ).decode("ascii")
+                            except Exception:
+                                pass
                             step_outcomes.append(V3StepOutcome(
                                 step_id=desc,
                                 success=True,
                                 method="fast_dom",
                                 latency_ms=step_ms,
                                 cost_usd=0.0,
+                                screenshot_b64=hover_ss_b64,
+                                actor="Executor",
                             ))
                             completed_descs.append(desc)
 
@@ -551,6 +689,7 @@ class V3Orchestrator:
                                 f"가격, 색상 등 필터가 필요하면"
                                 f" 필터부터 적용한 후 상품을 선택하세요.",
                                 screenshot,
+                                site_knowledge=site_knowledge_str,
                             )
                             self._track_vlm_call()
                             if steps:
@@ -583,9 +722,13 @@ class V3Orchestrator:
                         f"중요: 가격, 색상 등 필터 조건이 남아있으면"
                         f" 반드시 필터를 먼저 적용한 후에 상품을 선택하세요."
                         f" 필터 적용 전에 상품을 직접 클릭하지 마세요.\n"
+                        f"시각적 속성(색상, 문양 등)으로 상품을 찾아야 하면"
+                        f" visual_filter 스텝을 사용하세요."
+                        f" 사이트 필터 UI 대신 visual_filter가 우선입니다.\n"
                         f"이미 완료된 스텝은 다시 실행하지 마세요."
                         f" 완료되었으면 빈 배열 [] 출력.",
                         screenshot,
+                        site_knowledge=site_knowledge_str,
                     )
                     self._track_vlm_call()
 
@@ -616,11 +759,35 @@ class V3Orchestrator:
             logger.error("Budget exceeded: %s", exc)
 
         all_ok = all(o.success for o in step_outcomes) and len(step_outcomes) > 0
+
+        # Update site knowledge after run (success + failures)
+        if self.site_knowledge and (completed_steps or failed_step_pairs):
+            domain = extract_domain(browser.url)
+            try:
+                await self.site_knowledge.save_run(
+                    domain=domain,
+                    completed_steps=completed_steps,
+                    failed_steps=failed_step_pairs,
+                    task=task,
+                    llm=self._knowledge_llm,
+                )
+            except Exception:
+                logger.warning("Failed to save site knowledge", exc_info=True)
+
         total_ms = (time.monotonic() - self._run_start) * 1000
+
+        # Capture final screenshot for API/UI reporting
+        screenshots: list[str] = []
+        try:
+            final_png = await browser.screenshot()
+            screenshots.append(base64.b64encode(final_png).decode())
+        except Exception:
+            logger.debug("Failed to capture final screenshot", exc_info=True)
 
         result = V3RunResult(
             success=all_ok,
             step_results=step_outcomes,
+            screenshots=screenshots,
             total_tokens=self._total_tokens,
             total_cost_usd=self._total_cost,
             result_summary=(
@@ -633,10 +800,20 @@ class V3Orchestrator:
             ),
         )
         logger.info("▶ Result: %s", result.result_summary)
+
+        self._emit(ProgressInfo(
+            event=ProgressEvent.RUN_COMPLETED,
+            total_steps=len(step_outcomes),
+            message=result.result_summary or "",
+            success=all_ok,
+            cost_usd=self._total_cost,
+        ))
+
         return result
 
     async def _run_loop(
         self, task: str, steps: list[StepPlan], browser: Browser,
+        site_knowledge_str: str = "",
     ) -> bool:
         """Main execution loop with lazy replan support.
 
@@ -690,6 +867,7 @@ class V3Orchestrator:
                     completed_str = self._completed_summary(completed_descs)
                     steps = await self.planner.plan(
                         f"{task} ({completed_str})", screenshot,
+                        site_knowledge=site_knowledge_str,
                     )
                     self._track_vlm_call()
 
@@ -698,6 +876,10 @@ class V3Orchestrator:
                             "Progressive replan returned no steps"
                             " — task may be complete",
                         )
+                        return True
+                    steps = self._dedup_steps(steps, completed_descs)
+                    if not steps:
+                        logger.info("All replanned steps already completed")
                         return True
                     logger.info(
                         "New plan: %d steps — %s",
@@ -730,10 +912,15 @@ class V3Orchestrator:
                     steps = await self.planner.plan(
                         f"{task} ({completed_str}, 남은 작업: {remaining})",
                         screenshot,
+                        site_knowledge=site_knowledge_str,
                     )
                     self._track_vlm_call()
 
                     if not steps:
+                        return False
+                    steps = self._dedup_steps(steps, completed_descs)
+                    if not steps:
+                        logger.info("All replanned steps already completed")
                         return False
                     logger.info(
                         "New plan: %d steps — %s",
@@ -1138,6 +1325,10 @@ class V3Orchestrator:
         if current_action in _PASSIVE_ACTIONS:
             return False
 
+        # After input actions, wait for page to react before DOM check
+        if current_action in _INPUT_ACTIONS:
+            await browser.wait(2000)
+
         # Lazy check: can the next step find its target in current DOM?
         next_step = steps[current_idx + 1]
         if not next_step.keyword_weights:
@@ -1166,8 +1357,81 @@ class V3Orchestrator:
 
         return False
 
+    async def _execute_visual_filter(
+        self, step: StepPlan, browser: Browser,
+    ) -> bool:
+        """Execute a visual_filter step using VisualJudge.
+
+        Flow:
+          1. RF-DETR detects cards → crop → grid → VLM judges (preferred)
+          2. RF-DETR fails → VLM fullscreen (fallback)
+          3. Click matched item by bbox (grid) or planner xy (fullscreen)
+        """
+        if not self.visual_judge:
+            logger.warning("No VisualJudge configured, skipping visual_filter")
+            return False
+
+        screenshot = await browser.screenshot()
+        items = await self.visual_judge.judge(
+            screenshot=screenshot,
+            query=step.visual_filter_query or step.value or "",
+            complexity=step.visual_complexity or "simple",
+        )
+
+        matched = [i for i in items if i.relevant]
+        if not matched:
+            logger.warning("VisualJudge: no matching items found")
+            return False
+
+        best = max(matched, key=lambda i: i.confidence)
+        x, y, w, h = best.page_bbox
+
+        # Check if this is a fullscreen result (bbox covers entire page)
+        size = await browser.get_viewport_size()
+        is_fullscreen = (
+            x == 0 and y == 0
+            and w >= size["width"] * 0.9
+            and h >= size["height"] * 0.9
+        )
+
+        if is_fullscreen:
+            # Fullscreen VLM fallback — use planner's target coordinates
+            if step.target_viewport_xy:
+                cx = int(step.target_viewport_xy[0] * size["width"])
+                cy = int(step.target_viewport_xy[1] * size["height"])
+                logger.info(
+                    "VisualJudge[fullscreen]: VLM confirmed match, "
+                    "clicking planner xy (%d, %d) — %s (%.2f)",
+                    cx, cy, best.label, best.confidence,
+                )
+            else:
+                # No planner coords — fall through to normal pipeline
+                logger.info(
+                    "VisualJudge[fullscreen]: VLM confirmed match but "
+                    "no target coords, delegating to normal pipeline",
+                )
+                return await self._full_pipeline(step, browser, self._get_domain(browser.url))
+        else:
+            # Grid result — click center of detected card bbox
+            cx = x + w // 2
+            cy = y + h // 2
+            logger.info(
+                "VisualJudge[grid]: clicked item %d at (%d, %d) — %s (%.2f)",
+                best.cell_index, cx, cy, best.label, best.confidence,
+            )
+
+        page = browser._page
+        await page.mouse.click(cx, cy)
+        return True
+
     async def _execute_step(self, step: StepPlan, browser: Browser) -> bool:
         """Execute a single step with cache check and full pipeline fallback."""
+        self._last_actor = ""
+
+        if step.action_type == "visual_filter":
+            self._last_actor = "VisualJudge"
+            return await self._execute_visual_filter(step, browser)
+
         domain = self._get_domain(browser.url)
         pre_screenshot = await browser.screenshot()
 
@@ -1175,6 +1439,7 @@ class V3Orchestrator:
         cached = await self.cache.lookup(domain, browser.url, step.target_description)
         if cached:
             logger.info("  Cache hit: %s", cached.selector or "viewport")
+            self._last_actor = "Cache"
             result = await self._try_cached(cached, browser, pre_screenshot)
             if result == "ok":
                 logger.info("  Cache execution OK")
@@ -1182,6 +1447,7 @@ class V3Orchestrator:
             logger.info("  Cache execution %s, falling through to pipeline", result)
 
         # === Uncached path: full pipeline ===
+        self._last_actor = "LLM Actor"
         return await self._full_pipeline(step, browser, domain)
 
     async def _try_cached(
@@ -1243,6 +1509,7 @@ class V3Orchestrator:
             self._check_budget()
             action = await self.actor.decide(step, candidates, browser)
             self._track_llm_call()
+            self._last_actor = "LLM Actor"
             logger.info(
                 "  Actor selected: %s [%s] val=%s",
                 action.selector or "viewport",
@@ -1254,6 +1521,7 @@ class V3Orchestrator:
                 "  No strong candidate (%.2f < %.2f), using planner coords",
                 top_score, FILTER_SCORE_THRESHOLD,
             )
+            self._last_actor = "VLM Planner"
             action = Action(
                 selector=None,
                 action_type=step.action_type,
@@ -1374,3 +1642,4 @@ class V3Orchestrator:
             return urlparse(url).netloc
         except Exception:
             return ""
+
