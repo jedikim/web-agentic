@@ -70,7 +70,18 @@ class DSLGenerator:
             "9. Filters/search come AFTER reaching the target page "
             "(navigation → filters → search order)\n"
             "10. Use SiteProfile menu_items and category_tree selectors "
-            "when available"
+            "when available\n"
+            "11. Every interactive step (click, hover, fill) MUST include "
+            '"text_match" with the visible text label of the target element\n'
+            "12. For menu/category navigation from intent: extract the menu "
+            "hierarchy path, generate hover→wait(500ms)→click/hover for each "
+            "level, each step with text_match = menu item name\n"
+            "13. If intent specifies explicit menu/category path, use direct "
+            "menu navigation (hover→wait→click), NOT search\n"
+            "14. For fill actions: selector MUST target the actual <input> or "
+            "<textarea> element, NOT a label or wrapper div. "
+            "Use input-specific selectors like input[name=...], #inputId, "
+            "input[placeholder*=...]"
         )
 
         raw = await llm.complete(
@@ -248,5 +259,13 @@ class DSLGenerator:
             "- If DSL can express the logic, do not use macro code\n"
             "- Multi-level menus: Use hover → wait(500ms) → click for nested submenus\n"
             "- Step ordering: navigation first → filters → search → extract\n"
-            "- Use SiteProfile menu_items/category_tree selectors when available"
+            "- Use SiteProfile menu_items/category_tree selectors when available\n"
+            '- Every action step MUST include "text_match" (visible text of target)\n'
+            "- text_match is the primary fallback when CSS selectors fail\n"
+            "- For menu navigation: hover parent → wait(500ms) → hover/click child\n"
+            '- Parse intent to extract menu path: e.g., "스포츠·레저 > 여성스포츠의류 > 등산복"\n'
+            "- Step JSON schema: {action, selector, fallback_selectors, text_match, "
+            "value?, verify, timeout_ms}\n"
+            "- fill action: always target the <input>/<textarea> element directly, "
+            "never a label or container"
         )

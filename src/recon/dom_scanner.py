@@ -139,7 +139,10 @@ class DOMScanner:
         return await browser.evaluate(
             """(() => {
             const nav = document.querySelector(
-                'nav, [role="navigation"], header ul, .gnb, .main-menu');
+                'nav, [role="navigation"], header ul, .gnb, .main-menu, ' +
+                '#gnb, #gnbMenu, [class*="gnb"], [class*="main-nav"], ' +
+                '[class*="global-nav"], [class*="top-menu"], [class*="nav-menu"], ' +
+                '[class*="cate_menu"], [class*="lnb"]');
             const menuItems = nav ? [...nav.querySelectorAll('a')].map(a => ({
                 text: a.textContent.trim().slice(0, 50),
                 href: a.href,
@@ -303,7 +306,9 @@ class DOMScanner:
         return await browser.evaluate(
             """(() => {
             const patterns = [];
-            const hoverMenus = document.querySelectorAll('[class*="dropdown"], [class*="flyout"]');
+            const hoverMenus = document.querySelectorAll(
+                '[class*="dropdown"], [class*="flyout"], [class*="depth2"], ' +
+                '[class*="sub-menu"], [class*="submenu"], [class*="mega"]');
             if (hoverMenus.length > 0)
                 patterns.push({type: 'hover_menu', count: hoverMenus.length});
             const carousels = document.querySelectorAll(

@@ -386,3 +386,424 @@ class TestSystemPromptNavGuide:
         assert "menu_depth>=2" in source
         assert "navigation → filters → search" in source
         assert "category_tree" in source
+
+
+# ═══════════════════════════════════════════════════════════
+# 7. text_match fallback in executor
+# ═══════════════════════════════════════════════════════════
+
+
+class TestTextMatchFallback:
+
+    @pytest.mark.asyncio
+    async def test_text_match_resolves_when_css_fails(self) -> None:
+        """CSS selector fails → text_match Playwright text selector succeeds."""
+        from src.models.bundle import GeneratedBundle
+
+        bundle = GeneratedBundle(
+            workflow_dsl={
+                "domain": "test.com",
+                "strategy": "dom_only",
+                "task_type": "search",
+                "steps": [
+                    {
+                        "action": "click",
+                        "selector": "#nonexistent",
+                        "fallback_selectors": [],
+                        "text_match": "스포츠·레저",
+                        "timeout_ms": 1000,
+                    },
+                ],
+            },
+        )
+
+        page = AsyncMock()
+        page.url = "https://test.com"
+        # CSS selector fails, text selector succeeds
+        async def mock_query(sel: str) -> Any:
+            if sel.startswith("text="):
+                return AsyncMock()  # found
+            return None  # CSS not found
+        page.query_selector.side_effect = mock_query
+
+        browser = AsyncMock()
+        browser.get_page.return_value = page
+
+        executor = BundleExecutor()
+        result = await executor.execute(bundle, browser, "nav task")
+
+        assert result.success is True
+        assert result.steps_completed == 1
+        page.click.assert_called_once()
+        # Clicked with text selector
+        click_sel = page.click.call_args[0][0]
+        assert 'text="스포츠·레저"' in click_sel
+
+    @pytest.mark.asyncio
+    async def test_text_match_link_fallback(self) -> None:
+        """a:has-text() fallback works when text= fails."""
+        from src.models.bundle import GeneratedBundle
+
+        bundle = GeneratedBundle(
+            workflow_dsl={
+                "domain": "test.com",
+                "strategy": "dom_only",
+                "task_type": "search",
+                "steps": [
+                    {
+                        "action": "hover",
+                        "selector": "#bad",
+                        "fallback_selectors": [],
+                        "text_match": "여성스포츠의류",
+                        "timeout_ms": 1000,
+                    },
+                ],
+            },
+        )
+
+        page = AsyncMock()
+        page.url = "https://test.com"
+
+        call_count = 0
+
+        async def mock_query(sel: str) -> Any:
+            nonlocal call_count
+            call_count += 1
+            # CSS fails, text= fails, a:has-text succeeds
+            if sel.startswith('a:has-text'):
+                return AsyncMock()
+            return None
+        page.query_selector.side_effect = mock_query
+
+        browser = AsyncMock()
+        browser.get_page.return_value = page
+
+        executor = BundleExecutor()
+        result = await executor.execute(bundle, browser, "hover task")
+
+        assert result.success is True
+        hover_sel = page.hover.call_args[0][0]
+        assert 'a:has-text("여성스포츠의류")' in hover_sel
+
+    @pytest.mark.asyncio
+    async def test_text_match_empty_skipped(self) -> None:
+        """Empty text_match does not add text selectors to candidates."""
+        from src.models.bundle import GeneratedBundle
+
+        bundle = GeneratedBundle(
+            workflow_dsl={
+                "domain": "test.com",
+                "strategy": "dom_only",
+                "task_type": "search",
+                "steps": [
+                    {
+                        "action": "click",
+                        "selector": ".btn-ok",
+                        "fallback_selectors": [],
+                        "text_match": "",
+                        "timeout_ms": 1000,
+                    },
+                ],
+            },
+        )
+
+        page = AsyncMock()
+        page.url = "https://test.com"
+        page.query_selector.return_value = AsyncMock()  # CSS found
+
+        browser = AsyncMock()
+        browser.get_page.return_value = page
+
+        executor = BundleExecutor()
+        result = await executor.execute(bundle, browser, "click task")
+
+        assert result.success is True
+        page.click.assert_called_once()
+        click_sel = page.click.call_args[0][0]
+        assert click_sel == ".btn-ok"
+
+    @pytest.mark.asyncio
+    async def test_text_match_wait_for_selector(self) -> None:
+        """text_match falls back to wait_for_selector when query_selector fails."""
+        from src.models.bundle import GeneratedBundle
+
+        bundle = GeneratedBundle(
+            workflow_dsl={
+                "domain": "test.com",
+                "strategy": "dom_only",
+                "task_type": "search",
+                "steps": [
+                    {
+                        "action": "click",
+                        "selector": "#gone",
+                        "fallback_selectors": [],
+                        "text_match": "등산복",
+                        "timeout_ms": 2000,
+                    },
+                ],
+            },
+        )
+
+        page = AsyncMock()
+        page.url = "https://test.com"
+        # All query_selector calls return None
+        page.query_selector.return_value = None
+        # wait_for_selector succeeds for text selector
+        page.wait_for_selector.return_value = AsyncMock()
+
+        browser = AsyncMock()
+        browser.get_page.return_value = page
+
+        executor = BundleExecutor()
+        result = await executor.execute(bundle, browser, "wait task")
+
+        assert result.success is True
+        # Should have called wait_for_selector with text selector
+        wait_calls = [
+            call for call in page.wait_for_selector.call_args_list
+            if 'text="등산복"' in str(call)
+        ]
+        assert len(wait_calls) >= 1
+
+
+# ═══════════════════════════════════════════════════════════
+# 7b. fill action uses input-specific resolution (not text labels)
+# ═══════════════════════════════════════════════════════════
+
+
+class TestFillInputResolution:
+
+    @pytest.mark.asyncio
+    async def test_fill_resolves_to_input_not_label(self) -> None:
+        """fill action with text_match finds <input> by placeholder, not text label."""
+        from src.models.bundle import GeneratedBundle
+
+        bundle = GeneratedBundle(
+            workflow_dsl={
+                "domain": "test.com",
+                "strategy": "dom_only",
+                "task_type": "search",
+                "steps": [
+                    {
+                        "action": "fill",
+                        "selector": "#nonexistent-price",
+                        "fallback_selectors": [],
+                        "text_match": "가격",
+                        "value": "100000",
+                        "timeout_ms": 1000,
+                    },
+                ],
+            },
+        )
+
+        page = AsyncMock()
+        page.url = "https://test.com"
+
+        async def mock_query(sel: str) -> Any:
+            # CSS primary fails; placeholder-based input selector succeeds
+            if 'placeholder' in sel and '가격' in sel:
+                return AsyncMock()
+            return None
+        page.query_selector.side_effect = mock_query
+
+        browser = AsyncMock()
+        browser.get_page.return_value = page
+
+        executor = BundleExecutor()
+        result = await executor.execute(bundle, browser, "price fill")
+
+        assert result.success is True
+        fill_sel = page.fill.call_args[0][0]
+        assert "placeholder" in fill_sel
+        assert "가격" in fill_sel
+
+    @pytest.mark.asyncio
+    async def test_fill_js_fallback_finds_input_near_label(self) -> None:
+        """fill action JS fallback finds input near matching text label."""
+        from src.models.bundle import GeneratedBundle
+
+        bundle = GeneratedBundle(
+            workflow_dsl={
+                "domain": "test.com",
+                "strategy": "dom_only",
+                "task_type": "search",
+                "steps": [
+                    {
+                        "action": "fill",
+                        "selector": "#bad",
+                        "fallback_selectors": [],
+                        "text_match": "최대가격",
+                        "value": "100000",
+                        "timeout_ms": 1000,
+                    },
+                ],
+            },
+        )
+
+        page = AsyncMock()
+        page.url = "https://test.com"
+
+        query_count = 0
+
+        async def mock_query(sel: str) -> Any:
+            nonlocal query_count
+            query_count += 1
+            # CSS/placeholder fail; JS-returned selector succeeds
+            if sel == '#priceMax':
+                return AsyncMock()
+            return None
+        page.query_selector.side_effect = mock_query
+        # JS evaluate returns the input selector found near "최대가격" label
+        page.evaluate.return_value = "#priceMax"
+
+        browser = AsyncMock()
+        browser.get_page.return_value = page
+
+        executor = BundleExecutor()
+        result = await executor.execute(bundle, browser, "price fill js")
+
+        assert result.success is True
+        fill_sel = page.fill.call_args[0][0]
+        assert fill_sel == "#priceMax"
+
+    @pytest.mark.asyncio
+    async def test_fill_does_not_use_text_selector(self) -> None:
+        """fill action NEVER resolves to text= selector (would match labels)."""
+        from src.models.bundle import GeneratedBundle
+
+        bundle = GeneratedBundle(
+            workflow_dsl={
+                "domain": "test.com",
+                "strategy": "dom_only",
+                "task_type": "search",
+                "steps": [
+                    {
+                        "action": "fill",
+                        "selector": "#bad",
+                        "fallback_selectors": [],
+                        "text_match": "가격",
+                        "value": "100000",
+                        "timeout_ms": 1000,
+                    },
+                ],
+            },
+        )
+
+        page = AsyncMock()
+        page.url = "https://test.com"
+        # All resolution fails
+        page.query_selector.return_value = None
+        page.evaluate.return_value = None
+        page.wait_for_selector.side_effect = Exception("timeout")
+
+        browser = AsyncMock()
+        browser.get_page.return_value = page
+
+        executor = BundleExecutor()
+        result = await executor.execute(bundle, browser, "fill fail test")
+
+        # Should fail, NOT succeed with text= selector
+        assert result.success is False
+        # Verify no text= selector was used for fill
+        for call in page.fill.call_args_list:
+            assert 'text=' not in str(call)
+
+
+# ═══════════════════════════════════════════════════════════
+# 8. DSL generator text_match rules
+# ═══════════════════════════════════════════════════════════
+
+
+class TestDSLGeneratorTextMatch:
+
+    @pytest.mark.asyncio
+    async def test_rules_mention_text_match(self) -> None:
+        """User message rules include text_match rule."""
+        llm = FakeLLMRouter(response=json.dumps({
+            "domain": "shop.example.com", "strategy": "dom_only",
+            "task_type": "search", "steps": [],
+        }))
+        gen = DSLGenerator()
+        profile = _make_profile()
+        assignments = [
+            StrategyAssignment(page_type="home", url_pattern="/", strategy="dom_only"),
+        ]
+
+        await gen.generate(profile, assignments, "search", llm)
+
+        user_msg = llm.calls[0]["messages"][1]["content"]
+        assert "text_match" in user_msg
+        assert "visible text label" in user_msg
+
+    def test_system_prompt_mentions_text_match(self) -> None:
+        """System prompt includes text_match guidance."""
+        profile = _make_profile()
+        prompt = DSLGenerator._system_prompt(profile)
+
+        assert "text_match" in prompt
+        assert "fallback when CSS selectors fail" in prompt
+
+
+# ═══════════════════════════════════════════════════════════
+# 9. Orchestrator intent-specific regeneration
+# ═══════════════════════════════════════════════════════════
+
+
+class TestOrchestratorIntentRegeneration:
+
+    @pytest.mark.asyncio
+    async def test_regenerates_dsl_when_intent_provided(self) -> None:
+        """When intent is provided and KB has a hit, codegen is re-run."""
+        from unittest.mock import MagicMock, patch
+
+        # Fake KB that returns a hit with profile
+        fake_profile = _make_profile(domain="shop.example.com")
+        kb = MagicMock()
+        lookup_result = MagicMock()
+        lookup_result.hit = True
+        lookup_result.profile = fake_profile
+        kb.lookup.return_value = lookup_result
+
+        # Codegen spy
+        codegen = AsyncMock()
+
+        # Runtime returns success
+        runtime_result = MagicMock()
+        runtime_result.success = True
+        runtime_result.llm_calls = 0
+        runtime_result.failure_evidence = None
+        runtime = AsyncMock()
+        runtime.run.return_value = runtime_result
+
+        # Browser adapter
+        browser = AsyncMock()
+        page = AsyncMock()
+        page.url = "https://shop.example.com/category"
+        browser.get_page.return_value = page
+
+        # Build orchestrator
+        from src.core.v4_orchestrator import V4Orchestrator
+
+        orch = V4Orchestrator(
+            kb=kb,
+            llm=MagicMock(),
+            maturity_tracker=MagicMock(),
+            change_detector=AsyncMock(),
+            codegen=codegen,
+            runtime=runtime,
+            failure_analyzer=AsyncMock(),
+            improver=AsyncMock(),
+        )
+
+        with patch.object(orch, "_run_codegen", new_callable=AsyncMock) as mock_cg:
+            await orch.run(
+                "스포츠의류 카테고리로 이동",
+                browser,
+                task_type="navigation",
+                skip_change_detect=True,
+            )
+
+            # codegen was called with the intent
+            assert mock_cg.called
+            call_kwargs = mock_cg.call_args
+            assert "스포츠의류 카테고리로 이동" in str(call_kwargs)

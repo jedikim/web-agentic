@@ -6,6 +6,7 @@ action to the corresponding Playwright call through a BrowserLike protocol.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import time
 from dataclasses import dataclass, field
@@ -173,6 +174,7 @@ class BundleExecutor:
         timeout_ms = step.get("timeout_ms", self._default_timeout_ms)
         fallbacks: list[str] = step.get("fallback_selectors", [])
 
+        text_match = step.get("text_match", "")
         logger.debug("Step %d: %s selector=%s", idx, action, selector)
 
         if action == "goto":
@@ -202,12 +204,16 @@ class BundleExecutor:
 
         # Actions requiring a selector — try primary, then fallbacks.
         resolved = await self._resolve_selector(
-            page, selector, fallbacks, timeout_ms
+            page, selector, fallbacks, timeout_ms,
+            text_match=text_match, action=action,
         )
 
         if action == "click":
             await page.click(resolved, timeout=timeout_ms)
         elif action == "fill":
+            # Click to focus the input element before filling.
+            with contextlib.suppress(Exception):
+                await page.click(resolved, timeout=timeout_ms)
             await page.fill(resolved, value, timeout=timeout_ms)
         elif action == "hover":
             await page.hover(resolved, timeout=timeout_ms)
@@ -225,14 +231,19 @@ class BundleExecutor:
         primary: str,
         fallbacks: list[str],
         timeout_ms: int,
+        *,
+        text_match: str = "",
+        action: str = "",
     ) -> str:
-        """Try primary selector, then each fallback.
+        """Try primary selector, then each fallback, then text_match.
 
         Args:
             page: Current page.
             primary: Primary CSS/XPath selector.
             fallbacks: Ordered fallback selectors.
             timeout_ms: Timeout per attempt.
+            text_match: Visible text label for Playwright text selector fallback.
+            action: DSL action type (fill uses input-specific resolution).
 
         Returns:
             The first selector that resolves to an element.
@@ -241,7 +252,7 @@ class BundleExecutor:
             RuntimeError: If no selector resolves.
         """
         candidates = [primary] + fallbacks if primary else fallbacks
-        if not candidates:
+        if not candidates and not text_match:
             raise RuntimeError("No selector provided for action")
 
         for sel in candidates:
@@ -252,20 +263,156 @@ class BundleExecutor:
             except Exception:
                 continue
 
+        # text_match fallback — strategy depends on action type.
+        if text_match:
+            if action in ("fill", "press"):
+                # For fill/press: find the actual <input> element, not a label.
+                resolved = await self._resolve_input_by_text(
+                    page, text_match, timeout_ms,
+                )
+                if resolved:
+                    return resolved
+            else:
+                # For click/hover: use Playwright text selectors.
+                text_candidates = [
+                    f'text="{text_match}"',
+                    f'a:has-text("{text_match}")',
+                ]
+                for sel in text_candidates:
+                    try:
+                        el = await page.query_selector(sel)
+                        if el is not None:
+                            logger.debug("text_match fallback hit: %s", sel)
+                            return sel
+                    except Exception:
+                        continue
+                # Wait for text element to appear.
+                try:
+                    await page.wait_for_selector(
+                        f'text="{text_match}"', timeout=timeout_ms,
+                    )
+                    logger.debug("text_match wait_for_selector hit: %s", text_match)
+                    return f'text="{text_match}"'
+                except Exception:
+                    pass
+
         # Last resort: wait for primary with full timeout.
         if primary:
             try:
                 await page.wait_for_selector(
-                    primary, timeout=timeout_ms
+                    primary, timeout=timeout_ms,
                 )
                 return primary
             except Exception:
                 pass
 
-        tried = ", ".join(candidates)
+        tried_parts = list(candidates)
+        if text_match:
+            tried_parts.append(f'text="{text_match}"')
+        tried = ", ".join(tried_parts)
         raise RuntimeError(
             f"Selector not found (tried: {tried})"
         )
+
+    @staticmethod
+    async def _resolve_input_by_text(
+        page: PageLike,
+        text_match: str,
+        timeout_ms: int,
+    ) -> str | None:
+        """Find an <input>/<textarea> element associated with a text label.
+
+        Tries multiple strategies to locate the input field that corresponds
+        to the given text label, rather than the label/text element itself.
+
+        Returns:
+            Selector string if found, None otherwise.
+        """
+        # Strategy 1: input with matching placeholder
+        input_candidates = [
+            f'input[placeholder*="{text_match}"]',
+            f'textarea[placeholder*="{text_match}"]',
+            f'input[aria-label*="{text_match}"]',
+            f'input[name*="{text_match}"]',
+        ]
+        for sel in input_candidates:
+            try:
+                el = await page.query_selector(sel)
+                if el is not None:
+                    logger.debug("input text_match hit (attr): %s", sel)
+                    return sel
+            except Exception:
+                continue
+
+        # Strategy 2: JS — find label/text near a VISIBLE input.
+        # Collects all candidate matches, scores by proximity + visibility,
+        # then returns the best one (not the first DOM-order match).
+        try:
+            js_result = await page.evaluate(
+                """(textMatch) => {
+                const walker = document.createTreeWalker(
+                    document.body, NodeFilter.SHOW_TEXT, null);
+                let node;
+                const candidates = [];
+                while ((node = walker.nextNode())) {
+                    if (!node.textContent.includes(textMatch)) continue;
+                    let container = node.parentElement;
+                    for (let i = 0; i < 5 && container; i++) {
+                        const input = container.querySelector(
+                            'input:not([type="hidden"]):not([type="checkbox"])'
+                            + ':not([type="radio"]):not([type="submit"])'
+                            + ':not([type="button"]), textarea'
+                        );
+                        if (input && input.offsetWidth > 0 && input.offsetHeight > 0) {
+                            let sel;
+                            if (input.id) sel = '#' + input.id;
+                            else if (input.name) sel = 'input[name=\"' + input.name + '\"]';
+                            else {
+                                const idx = [...container.querySelectorAll('input, textarea')]
+                                    .indexOf(input);
+                                const pSel = container.id ? '#' + container.id
+                                    : container.className
+                                        ? '.' + container.className.trim().split(/\\s+/)[0]
+                                        : container.tagName.toLowerCase();
+                                sel = pSel + ' input:nth-of-type(' + (idx + 1) + ')';
+                            }
+                            candidates.push({
+                                sel,
+                                level: i,
+                                isNumber: input.type === 'number' ? 1 : 0,
+                            });
+                            break;
+                        }
+                        container = container.parentElement;
+                    }
+                }
+                if (candidates.length === 0) return null;
+                candidates.sort((a, b) => {
+                    if (a.level !== b.level) return a.level - b.level;
+                    return b.isNumber - a.isNumber;
+                });
+                return candidates[0].sel;
+            }"""
+            )
+            if js_result:
+                # Verify the JS-returned selector resolves
+                el = await page.query_selector(js_result)
+                if el is not None:
+                    logger.debug("input text_match hit (JS): %s", js_result)
+                    return js_result
+        except Exception:
+            pass
+
+        # Strategy 3: wait for input with placeholder
+        try:
+            sel = f'input[placeholder*="{text_match}"]'
+            await page.wait_for_selector(sel, timeout=timeout_ms)
+            logger.debug("input text_match wait hit: %s", sel)
+            return sel
+        except Exception:
+            pass
+
+        return None
 
     @staticmethod
     def _build_evidence(

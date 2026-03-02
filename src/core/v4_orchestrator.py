@@ -130,6 +130,14 @@ class V4Orchestrator:
                 # Re-lookup after codegen
                 lookup = self._kb.lookup(domain, url)
 
+        # 4b. Intent-specific DSL: force codegen when intent changes the task
+        if intent and lookup.hit and lookup.profile is not None:
+            logger.info("Intent provided — generating task-specific DSL")
+            await self._run_codegen(
+                domain, lookup.profile, task_type, intent=intent,
+            )
+            lookup = self._kb.lookup(domain, url)
+
         # 5. Runtime execution
         wf_result = await self._runtime.run(
             domain=domain,
