@@ -7,6 +7,7 @@ action to the corresponding Playwright call through a BrowserLike protocol.
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 import time
 from dataclasses import dataclass, field
@@ -209,12 +210,35 @@ class BundleExecutor:
         )
 
         if action == "click":
-            await page.click(resolved, timeout=timeout_ms)
+            try:
+                await page.click(resolved, timeout=timeout_ms)
+            except Exception as click_err:
+                # Fallback: JS click for elements that Playwright can't
+                # click normally — hidden hover-menu items, elements behind
+                # sticky headers, etc.
+                err_lower = str(click_err).lower()
+                needs_js = (
+                    "not visible" in err_lower
+                    or "intercepts pointer" in err_lower
+                )
+                if needs_js:
+                    logger.debug(
+                        "Click failed (%s), trying JS click: %s",
+                        "not visible" if "not visible" in err_lower
+                        else "pointer intercepted",
+                        resolved,
+                    )
+                    await self._js_click(page, resolved, text_match)
+                else:
+                    raise
         elif action == "fill":
             # Click to focus the input element before filling.
             with contextlib.suppress(Exception):
                 await page.click(resolved, timeout=timeout_ms)
             await page.fill(resolved, value, timeout=timeout_ms)
+            # Dismiss any autocomplete/overlay triggered by the fill.
+            with contextlib.suppress(Exception):
+                await page.press(resolved, "Escape")
         elif action == "hover":
             await page.hover(resolved, timeout=timeout_ms)
         elif action == "select":
@@ -431,6 +455,97 @@ class BundleExecutor:
             pass
 
         return None
+
+    @staticmethod
+    async def _js_click(
+        page: PageLike,
+        selector: str,
+        text_match: str,
+    ) -> None:
+        """JS click fallback for elements hidden by hover-menu collapse.
+
+        Tries to click the element via JavaScript, bypassing Playwright's
+        visibility checks.  If the element is a link with a real href,
+        navigates directly instead.
+        """
+        # Build a JS snippet that finds the best matching element,
+        # preferring visible interactive elements over hidden ones.
+        js_find_click = """(args) => {
+            const [cssSelector, textMatch] = args;
+            function isVisible(el) {
+                const r = el.getBoundingClientRect();
+                return r.width > 0 && r.height > 0;
+            }
+            function tryClick(el) {
+                el.scrollIntoView({block: 'center', behavior: 'instant'});
+                const a = el.closest('a') || el;
+                const href = a.href || '';
+                if (href && !href.endsWith('#') && !href.includes('javascript:')) {
+                    return {action: 'navigate', href};
+                }
+                el.click();
+                return {action: 'clicked'};
+            }
+            // Strategy 1: CSS selector
+            if (cssSelector) {
+                const el = document.querySelector(cssSelector);
+                if (el) return tryClick(el);
+            }
+            // Strategy 2: text match — find visible interactive elements
+            if (textMatch) {
+                // Prioritize: button > a > [role] > span/label
+                const tags = 'button, a, [role="menuitem"], '
+                    + '[role="button"], input[type="submit"], '
+                    + 'span, label, div';
+                const all = [...document.querySelectorAll(tags)];
+                const scored = [];
+                for (const el of all) {
+                    const t = (el.textContent?.trim() || '');
+                    if (!t.includes(textMatch)) continue;
+                    const exact = (t === textMatch) ? 10 : 0;
+                    const vis = isVisible(el) ? 5 : 0;
+                    const tag = el.tagName;
+                    const iBtn = ['BUTTON', 'A', 'INPUT']
+                        .includes(tag) ? 3 : 0;
+                    const short = t.length <= textMatch.length + 5
+                        ? 2 : 0;
+                    scored.push({el, score: exact + vis + iBtn + short});
+                }
+                scored.sort((a, b) => b.score - a.score);
+                if (scored.length > 0) return tryClick(scored[0].el);
+            }
+            return null;
+        }"""
+
+        # Extract CSS selector from Playwright selector string
+        # (strip text= prefix, :has-text() etc.)
+        css_sel = selector
+        if css_sel.startswith("text=") or css_sel.startswith('text="'):
+            css_sel = ""  # not a CSS selector
+        if ":has-text(" in css_sel:
+            # Keep it — Playwright CSS extension, but won't work in native
+            # querySelectorAll.  Try without the :has-text() part.
+            css_sel = css_sel.split(":has-text(")[0].strip() or ""
+
+        try:
+            result = await page.evaluate(
+                f"({js_find_click})({json.dumps([css_sel, text_match])})"
+            )
+            if result and result.get("action") == "navigate":
+                href = result["href"]
+                logger.debug("JS click fallback: navigating to %s", href)
+                await page.goto(href, wait_until="domcontentloaded")
+                return
+            if result and result.get("action") == "clicked":
+                logger.debug("JS click fallback: el.click() succeeded")
+                return
+        except Exception:
+            pass
+
+        raise RuntimeError(
+            f"JS click fallback failed for selector={selector}, "
+            f"text_match={text_match}"
+        )
 
     @staticmethod
     def _build_evidence(
