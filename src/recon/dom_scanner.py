@@ -138,16 +138,40 @@ class DOMScanner:
         """Menu, search, breadcrumb structure."""
         return await browser.evaluate(
             """(() => {
+            // Strategy 1: ARIA menu/menubar with menuitem children (highest priority)
+            const ariaMenu = document.querySelector(
+                '[role="menubar"], [role="menu"]');
+            let ariaItems = [];
+            if (ariaMenu) {
+                ariaItems = [...ariaMenu.querySelectorAll('[role="menuitem"]')]
+                    .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0)
+                    .map(el => ({
+                        text: el.textContent.trim().slice(0, 50),
+                        href: el.closest('a')?.href || '',
+                        hasChildren: true,
+                        selector: el.id ? '#' + el.id
+                            : el.className
+                                ? '[role="menuitem"].' + el.className.trim().split(/\\s+/)[0]
+                                : '[role="menuitem"]',
+                    }));
+            }
+
+            // Strategy 2: Classic nav/gnb links
             const nav = document.querySelector(
                 'nav, [role="navigation"], header ul, .gnb, .main-menu, ' +
                 '#gnb, #gnbMenu, [class*="gnb"], [class*="main-nav"], ' +
                 '[class*="global-nav"], [class*="top-menu"], [class*="nav-menu"], ' +
                 '[class*="cate_menu"], [class*="lnb"]');
-            const menuItems = nav ? [...nav.querySelectorAll('a')].map(a => ({
+            const navItems = nav ? [...nav.querySelectorAll('a')].map(a => ({
                 text: a.textContent.trim().slice(0, 50),
                 href: a.href,
                 hasChildren: a.parentElement.querySelector('ul, .sub-menu, .dropdown') !== null,
             })) : [];
+
+            // Prefer ARIA menu items if they exist and have meaningful count
+            const menuItems = ariaItems.length >= 3 ? ariaItems : navItems;
+            const hasAriaMenu = ariaItems.length >= 3;
+
             const searchInput = document.querySelector(
                 'input[type="search"], input[name="query"], input[name="q"], ' +
                 'input[placeholder*="검색"], input[placeholder*="search"], [role="searchbox"]'
@@ -163,6 +187,7 @@ class DOMScanner:
             const megaMenu = document.querySelector('.mega-menu, [class*="mega"]');
             const menuType = hamburger ? 'hamburger'
                 : megaMenu ? 'mega_menu'
+                : hasAriaMenu ? 'aria_menubar'
                 : nav ? 'horizontal_nav' : 'unknown';
             const breadcrumb = document.querySelector(
                 '[class*="breadcrumb"], [aria-label="breadcrumb"], .path'
@@ -170,7 +195,8 @@ class DOMScanner:
             return {
                 menu_type: menuType,
                 menu_items: menuItems.slice(0, 30),
-                menu_requires_hover: menuType === 'mega_menu' || menuType === 'horizontal_nav',
+                menu_requires_hover: hasAriaMenu || menuType === 'mega_menu'
+                    || menuType === 'horizontal_nav',
                 search: searchConfig,
                 has_breadcrumb: !!breadcrumb,
             };

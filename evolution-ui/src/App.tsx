@@ -20,12 +20,14 @@ const NAV = [
 export default function App() {
   const location = useLocation()
   const [events, setEvents] = useState<{ type: string; data: unknown; ts: number }[]>([])
+  const [apiVersion, setApiVersion] = useState('')
   const esRef = useRef<EventSource | null>(null)
 
   useEffect(() => {
     esRef.current = subscribeSSE((type, data) => {
       setEvents((prev) => [...prev.slice(-99), { type, data, ts: Date.now() }])
     })
+    fetch('/api/health').then(r => r.json()).then(d => setApiVersion(d.version || '')).catch(() => {})
     return () => esRef.current?.close()
   }, [])
 
@@ -37,6 +39,9 @@ export default function App() {
           <span className="font-bold text-lg tracking-tight text-indigo-400">
             Evolution Engine
           </span>
+          {apiVersion && (
+            <span className="text-xs text-gray-500 font-mono">v{apiVersion}</span>
+          )}
           <div className="flex gap-1">
             {NAV.map((n) => (
               <Link

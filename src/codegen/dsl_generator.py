@@ -87,7 +87,14 @@ class DSLGenerator:
             "Parse numeric values from intent (e.g. '10만원 이하' → fill max "
             "price with '100000', '5만원 이상' → fill min price with '50000')\n"
             "16. When SiteProfile includes 'Filter input groups', use the exact "
-            "selectors listed. Generate: fill input → click submit button"
+            "selectors listed. Generate: fill input → click submit button\n"
+            "17. CRITICAL: text_match values for menu/category navigation MUST use "
+            "the EXACT text from SiteProfile menu_items. Do NOT paraphrase, "
+            "abbreviate, or guess menu labels. Match intent keywords to the "
+            "closest menu_item text (e.g. intent '스포츠' → menu item '스포츠 · 골프')\n"
+            "18. For ARIA menubar menus (menu_type=aria_menubar): hover the menuitem "
+            "directly using text selector, NOT a wrapper element. "
+            "The hover target selector should be [role=\"menuitem\"] with text_match"
         )
 
         raw = await llm.complete(
@@ -298,12 +305,16 @@ class DSLGenerator:
             '- Every action step MUST include "text_match" (visible text of target)\n'
             "- text_match is the primary fallback when CSS selectors fail\n"
             "- For menu navigation: hover parent → wait(500ms) → hover/click child\n"
-            '- Parse intent to extract menu path: e.g., "스포츠·레저 > 여성스포츠의류 > 등산복"\n'
+            "- Parse intent to extract menu path, then match to SiteProfile menu_items\n"
+            "- CRITICAL: text_match MUST use the EXACT text from SiteProfile menu_items, "
+            "NOT the intent phrasing. If intent says '스포츠' and menu has '스포츠 · 골프', "
+            "use '스포츠 · 골프' as text_match\n"
             "- Step JSON schema: {action, selector, fallback_selectors, text_match, "
             "value?, verify, timeout_ms}\n"
             "- fill action: always target the <input>/<textarea> element directly, "
             "never a label or container\n"
             "- CRITICAL: For filter inputs (price, range), generate fill step BEFORE "
             "clicking the submit button. Never click a filter search button without "
-            "first filling the associated input fields"
+            "first filling the associated input fields\n"
+            "- For ARIA menubar menus: hover [role='menuitem'] directly using text_match"
         )

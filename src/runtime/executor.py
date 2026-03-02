@@ -255,10 +255,28 @@ class BundleExecutor:
         if not candidates and not text_match:
             raise RuntimeError("No selector provided for action")
 
+        # When text_match is provided for click/hover, verify the CSS match
+        # contains the expected text (prevents matching wrong elements from
+        # generic selectors like [role="menuitem"].class).
+        need_text_verify = bool(text_match) and action in ("click", "hover")
+
         for sel in candidates:
             try:
                 el = await page.query_selector(sel)
                 if el is not None:
+                    if need_text_verify:
+                        try:
+                            el_text = (
+                                await el.text_content() or ""
+                            ).strip()
+                            if text_match not in el_text:
+                                logger.debug(
+                                    "Selector %s matched '%s', expected '%s' — skipping",
+                                    sel, el_text[:30], text_match,
+                                )
+                                continue
+                        except Exception:
+                            pass  # can't verify, accept the match
                     return sel
             except Exception:
                 continue

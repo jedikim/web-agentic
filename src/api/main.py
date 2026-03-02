@@ -56,7 +56,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await session_mgr.start_cleanup_loop()
     set_session_manager(session_mgr)
 
-    logger.info("Evolution API started — DB + Session infrastructure initialized")
+    logger.info("Evolution API v%s started — DB + Session infrastructure initialized", API_VERSION)
     yield
 
     # Shutdown — Session infrastructure (first)
@@ -74,6 +74,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("Evolution API shutdown complete")
 
 
+API_VERSION = "0.4.2-rc1"  # v4 text_match + filter input recon
+
+
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     app = FastAPI(
@@ -82,7 +85,7 @@ def create_app() -> FastAPI:
             "Self-evolving automation engine"
             " — failure analysis, code generation, version management"
         ),
-        version="0.1.0",
+        version=API_VERSION,
         lifespan=lifespan,
     )
 
@@ -109,7 +112,7 @@ def create_app() -> FastAPI:
 
     @app.get("/health")
     async def health() -> dict[str, str]:
-        return {"status": "ok", "service": "evolution-api"}
+        return {"status": "ok", "service": "evolution-api", "version": API_VERSION}
 
     return app
 
