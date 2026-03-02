@@ -21,6 +21,8 @@ class PromptGenerator:
         profile: SiteProfile,
         task_type: str,
         strategy: str,
+        *,
+        intent: str = "",
     ) -> dict[str, str]:
         """Produce prompt YAML strings keyed by prompt name.
 
@@ -28,6 +30,7 @@ class PromptGenerator:
             profile: Site reconnaissance profile.
             task_type: Task category (e.g. "search", "purchase").
             strategy: Chosen automation strategy name.
+            intent: Natural language task description.
 
         Returns:
             Dict mapping prompt name to YAML content string.
@@ -35,7 +38,7 @@ class PromptGenerator:
         """
         prompts: dict[str, str] = {
             "extract": self._extract_prompt(profile, task_type, strategy),
-            "navigate": self._navigate_prompt(profile, task_type),
+            "navigate": self._navigate_prompt(profile, task_type, intent=intent),
             "verify": self._verify_prompt(profile, task_type),
             "fallback": self._fallback_prompt(profile, strategy),
         }
@@ -76,10 +79,11 @@ class PromptGenerator:
         )
 
     def _navigate_prompt(
-        self, profile: SiteProfile, task_type: str,
+        self, profile: SiteProfile, task_type: str, *, intent: str = "",
     ) -> str:
         """Prompt for site navigation actions."""
         nav = profile.navigation
+        intent_section = f"task_description: {intent}\n" if intent else ""
         search_info = ""
         if profile.search_functionality:
             sf = profile.search_functionality
@@ -94,6 +98,7 @@ class PromptGenerator:
             f"name: navigate\n"
             f"domain: {profile.domain}\n"
             f"task_type: {task_type}\n"
+            f"{intent_section}"
             f"description: >\n"
             f"  Navigate within {profile.domain}.\n"
             f"  Menu depth: {nav.menu_depth}.\n"

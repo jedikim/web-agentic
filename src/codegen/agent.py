@@ -54,6 +54,7 @@ class CodeGenAgent:
         kb: KBManager,
         llm: LLMRouter,
         *,
+        intent: str = "",
         runtime_stats: dict[str, dict[str, Any]] | None = None,
     ) -> GeneratedBundle:
         """Run the full code-gen pipeline and return a validated bundle.
@@ -86,12 +87,12 @@ class CodeGenAgent:
         for attempt in range(1, _MAX_REGEN_ATTEMPTS + 1):
             # Step 2: DSL generation
             workflow_dsl = await self._dsl_generator.generate(
-                profile, assignments, task_type, llm,
+                profile, assignments, task_type, llm, intent=intent,
             )
 
             # Step 3: Prompt generation
             prompts = self._prompt_generator.generate(
-                profile, task_type, primary_strategy,
+                profile, task_type, primary_strategy, intent=intent,
             )
 
             # Assemble bundle

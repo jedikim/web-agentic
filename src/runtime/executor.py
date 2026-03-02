@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 _VALID_ACTIONS = frozenset({
     "goto", "click", "fill", "scroll", "wait", "screenshot",
-    "hover", "select", "press",
+    "hover", "select", "press", "evaluate",
 })
 
 _DEFAULT_TIMEOUT_MS = 10_000
@@ -193,6 +193,11 @@ class BundleExecutor:
             pixels = step.get("pixels", 500)
             delta = pixels if direction == "down" else -pixels
             await page.evaluate(f"window.scrollBy(0, {delta})")
+            return None
+
+        if action == "evaluate":
+            expression = value or selector
+            await page.evaluate(expression)
             return None
 
         # Actions requiring a selector — try primary, then fallbacks.

@@ -26,6 +26,8 @@ class DSLGenerator:
         assignments: list[StrategyAssignment],
         task_type: str,
         llm: LLMRouter,
+        *,
+        intent: str = "",
     ) -> dict[str, Any]:
         """Produce a workflow_dsl dict via LLM structured output.
 
@@ -34,6 +36,7 @@ class DSLGenerator:
             assignments: Strategy assignments per page type.
             task_type: Task category (e.g. "search", "purchase").
             llm: LLM router for generation calls.
+            intent: Natural language task description.
 
         Returns:
             Workflow DSL as a JSON-compatible dict.
@@ -41,13 +44,17 @@ class DSLGenerator:
         context = self._build_context(profile, assignments)
         system = self._system_prompt(profile)
 
+        intent_section = f"## User Task\n{intent}\n\n" if intent else ""
+
         user_msg = (
+            f"{intent_section}"
             "Generate a workflow DSL for the following site and strategies.\n\n"
             f"## SiteProfile Summary\n{context['profile_summary']}\n\n"
             f"## Strategy Assignments\n{context['strategy_summary']}\n\n"
             f"## Task Type: {task_type}\n\n"
             "## Rules\n"
-            "1. Use Playwright async API actions (goto, click, fill, evaluate)\n"
+            "1. Use Playwright async API actions (goto, click, fill, hover, "
+            "wait, evaluate, scroll)\n"
             "2. Include obstacle dismissal steps from SiteProfile\n"
             "3. Each step must have: action, selector (primary + fallbacks), "
             "verify condition\n"
@@ -55,7 +62,15 @@ class DSLGenerator:
             "task_type, steps (array)\n"
             "5. Each step: {action, selector, fallback_selectors, value?, "
             "verify, timeout_ms}\n"
-            "6. Return ONLY valid JSON — no markdown fences"
+            "6. Return ONLY valid JSON — no markdown fences\n"
+            "7. If the task requires menu/category navigation, place "
+            "hover→wait→click sequences first\n"
+            "8. Multi-level menus (menu_depth>=2): add wait(500ms) after "
+            "hover for submenu reveal\n"
+            "9. Filters/search come AFTER reaching the target page "
+            "(navigation → filters → search order)\n"
+            "10. Use SiteProfile menu_items and category_tree selectors "
+            "when available"
         )
 
         raw = await llm.complete(
@@ -115,6 +130,72 @@ class DSLGenerator:
             for a in assignments
         ]
 
+        # Menu items
+        menu_items_info = ""
+        if nav.menu_items:
+            lines = []
+            for item in nav.menu_items:
+                name = item.get("name", "")
+                sel = item.get("selector", "")
+                hover = item.get("requires_hover", False)
+                lines.append(f"  - {name}: selector={sel}, requires_hover={hover}")
+            menu_items_info = "Menu items:\n" + "\n".join(lines) + "\n"
+
+        # Category tree
+        category_info = ""
+        if profile.category_tree:
+            lines = []
+            for cat in profile.category_tree:
+                indent = "  " * (cat.depth + 1)
+                lines.append(
+                    f"{indent}- {cat.name}: selector={cat.selector or '(none)'}, "
+                    f"depth={cat.depth}"
+                )
+            category_info = "Category tree:\n" + "\n".join(lines) + "\n"
+
+        # Interaction patterns (hover_menu)
+        hover_patterns_info = ""
+        hover_patterns = [
+            p for p in profile.interaction_patterns if p.type == "hover_menu"
+        ]
+        if hover_patterns:
+            lines = [
+                f"  - selector={p.selector}, action={p.recommended_action_type}"
+                for p in hover_patterns
+            ]
+            hover_patterns_info = "Hover menu patterns:\n" + "\n".join(lines) + "\n"
+
+        # Form types (filter-related)
+        form_info = ""
+        if profile.form_types:
+            lines = [
+                f"  - url={f.url_pattern}, form={f.form_selector}, "
+                f"submit={f.submit_method}"
+                for f in profile.form_types
+            ]
+            form_info = "Form types:\n" + "\n".join(lines) + "\n"
+
+        # Search functionality
+        search_info = ""
+        if profile.search_functionality:
+            sf = profile.search_functionality
+            search_info = (
+                f"Search: input={sf.input_selector}, "
+                f"submit={sf.submit_method}, autocomplete={sf.autocomplete}\n"
+            )
+
+        # Filter selectors from list_structures
+        filter_info = ""
+        filters = [
+            ls for ls in profile.list_structures if ls.filter_selectors
+        ]
+        if filters:
+            lines = []
+            for ls in filters:
+                for fname, fsel in ls.filter_selectors.items():
+                    lines.append(f"  - {fname}: {fsel} (page={ls.url_pattern})")
+            filter_info = "Filter selectors:\n" + "\n".join(lines) + "\n"
+
         profile_summary = (
             f"Domain: {profile.domain}\n"
             f"Purpose: {profile.purpose}\n"
@@ -128,6 +209,12 @@ class DSLGenerator:
             f"Canvas: {profile.canvas_usage.has_canvas}\n"
             f"Navigation: menu_depth={nav.menu_depth}, "
             f"hover={nav.menu_requires_hover}, search={nav.has_search}\n"
+            f"{menu_items_info}"
+            f"{category_info}"
+            f"{hover_patterns_info}"
+            f"{search_info}"
+            f"{filter_info}"
+            f"{form_info}"
             f"Obstacles:\n" + ("\n".join(obstacles) or "  (none)") + "\n"
             "Content patterns:\n" + ("\n".join(content_info) or "  (none)")
         )
@@ -158,5 +245,8 @@ class DSLGenerator:
             "- Provide fallback selectors for every action step\n"
             "- Add low-cost verification after each action (URL/DOM change)\n"
             "- Output pure JSON only (no markdown, no comments)\n"
-            "- If DSL can express the logic, do not use macro code"
+            "- If DSL can express the logic, do not use macro code\n"
+            "- Multi-level menus: Use hover → wait(500ms) → click for nested submenus\n"
+            "- Step ordering: navigation first → filters → search → extract\n"
+            "- Use SiteProfile menu_items/category_tree selectors when available"
         )
