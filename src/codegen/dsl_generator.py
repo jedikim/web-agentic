@@ -81,7 +81,13 @@ class DSLGenerator:
             "14. For fill actions: selector MUST target the actual <input> or "
             "<textarea> element, NOT a label or wrapper div. "
             "Use input-specific selectors like input[name=...], #inputId, "
-            "input[placeholder*=...]"
+            "input[placeholder*=...]\n"
+            "15. Filter inputs (price, quantity, range): ALWAYS generate a fill "
+            "step for each input BEFORE clicking the filter submit/search button. "
+            "Parse numeric values from intent (e.g. '10만원 이하' → fill max "
+            "price with '100000', '5만원 이상' → fill min price with '50000')\n"
+            "16. When SiteProfile includes 'Filter input groups', use the exact "
+            "selectors listed. Generate: fill input → click submit button"
         )
 
         raw = await llm.complete(
@@ -178,13 +184,41 @@ class DSLGenerator:
 
         # Form types (filter-related)
         form_info = ""
+        filter_input_info = ""
         if profile.form_types:
-            lines = [
-                f"  - url={f.url_pattern}, form={f.form_selector}, "
-                f"submit={f.submit_method}"
-                for f in profile.form_types
-            ]
-            form_info = "Form types:\n" + "\n".join(lines) + "\n"
+            regular_forms = []
+            filter_forms = []
+            for f in profile.form_types:
+                if f.submit_method == "filter":
+                    filter_forms.append(f)
+                else:
+                    regular_forms.append(f)
+            if regular_forms:
+                lines = [
+                    f"  - url={f.url_pattern}, form={f.form_selector}, "
+                    f"submit={f.submit_method}"
+                    for f in regular_forms
+                ]
+                form_info = "Form types:\n" + "\n".join(lines) + "\n"
+            if filter_forms:
+                lines = []
+                for f in filter_forms:
+                    for fd in f.fields:
+                        label = fd.get("label", "") or fd.get("placeholder", "")
+                        sel = fd.get("selector", "")
+                        ftype = fd.get("type", "text")
+                        lines.append(
+                            f"  - {label or '(unnamed)'}: selector={sel}, "
+                            f"type={ftype}"
+                        )
+                    lines.append(
+                        f"  submit: selector={f.submit_selector}, "
+                        f"container={f.form_selector}"
+                    )
+                filter_input_info = (
+                    "Filter input groups (fill THEN click submit):\n"
+                    + "\n".join(lines) + "\n"
+                )
 
         # Search functionality
         search_info = ""
@@ -225,6 +259,7 @@ class DSLGenerator:
             f"{hover_patterns_info}"
             f"{search_info}"
             f"{filter_info}"
+            f"{filter_input_info}"
             f"{form_info}"
             f"Obstacles:\n" + ("\n".join(obstacles) or "  (none)") + "\n"
             "Content patterns:\n" + ("\n".join(content_info) or "  (none)")
@@ -267,5 +302,8 @@ class DSLGenerator:
             "- Step JSON schema: {action, selector, fallback_selectors, text_match, "
             "value?, verify, timeout_ms}\n"
             "- fill action: always target the <input>/<textarea> element directly, "
-            "never a label or container"
+            "never a label or container\n"
+            "- CRITICAL: For filter inputs (price, range), generate fill step BEFORE "
+            "clicking the submit button. Never click a filter search button without "
+            "first filling the associated input fields"
         )

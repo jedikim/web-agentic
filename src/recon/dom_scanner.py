@@ -279,7 +279,7 @@ class DOMScanner:
         )
 
     async def _scan_forms(self, browser: BrowserLike) -> dict[str, Any]:
-        """Form structure analysis."""
+        """Form structure analysis — both <form> elements and filter input groups."""
         return await browser.evaluate(
             """(() => {
             const forms = [...document.querySelectorAll('form')].slice(0, 10).map(f => ({
@@ -297,7 +297,58 @@ class DOMScanner:
                     text: f.querySelector('button[type="submit"]')?.textContent?.trim() || null,
                 } : null,
             }));
-            return { forms };
+
+            // Filter input groups: input + nearby button outside <form>
+            const filterGroups = [];
+            const buttons = document.querySelectorAll('button');
+            for (const btn of buttons) {
+                if (btn.closest('form')) continue;
+                if (btn.offsetWidth === 0 || btn.offsetHeight === 0) continue;
+                const container = btn.parentElement;
+                if (!container) continue;
+                // Walk up max 3 levels to find inputs near this button
+                let scope = container;
+                for (let i = 0; i < 3 && scope; i++) {
+                    const inputs = scope.querySelectorAll(
+                        'input:not([type="hidden"]):not([type="checkbox"])' +
+                        ':not([type="radio"]):not([type="submit"]):not([type="button"])');
+                    if (inputs.length > 0 && inputs.length <= 4) {
+                        const fields = [...inputs].filter(
+                            inp => inp.offsetWidth > 0 && inp.offsetHeight > 0
+                        ).map(inp => ({
+                            name: inp.name || null,
+                            type: inp.type,
+                            selector: inp.id ? '#' + inp.id : null,
+                            required: inp.required,
+                            placeholder: inp.placeholder || null,
+                            label: (inp.id && document.querySelector('label[for="' + inp.id + '"]')
+                                    ?.textContent?.trim()?.slice(0, 50))
+                                || inp.closest('.input-basic, .input-group, [class*="input"]')
+                                    ?.querySelector('label')?.textContent?.trim()?.slice(0, 50)
+                                || null,
+                        }));
+                        if (fields.length > 0) {
+                            filterGroups.push({
+                                action: null,
+                                method: 'filter',
+                                selector: scope.id ? '#' + scope.id
+                                    : scope.className
+                                        ? '.' + scope.className.trim().split(/\\s+/)[0]
+                                        : null,
+                                fields,
+                                submit: {
+                                    text: btn.textContent?.trim()?.slice(0, 20) || null,
+                                    selector: btn.id ? '#' + btn.id : null,
+                                },
+                            });
+                            break;
+                        }
+                    }
+                    scope = scope.parentElement;
+                }
+            }
+
+            return { forms, filter_groups: filterGroups.slice(0, 10) };
         })()"""
         )
 

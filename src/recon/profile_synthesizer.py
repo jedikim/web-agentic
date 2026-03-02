@@ -169,6 +169,16 @@ class ProfileSynthesizer:
             for f in dom.get("forms", [])
         ]
 
+        # Filter input groups (input+button outside <form>)
+        for fg in dom.get("filter_groups", []):
+            submit = fg.get("submit", {})
+            form_types.append(FormPattern(
+                form_selector=fg.get("selector", ""),
+                fields=fg.get("fields", []),
+                submit_selector=submit.get("selector", ""),
+                submit_method="filter",
+            ))
+
         # Content patterns from nav samples
         content_types = [
             ContentPattern(
