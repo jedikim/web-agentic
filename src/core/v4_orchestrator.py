@@ -17,6 +17,7 @@ from src.core.v4_result_adapter import workflow_result_to_v3
 from src.improve.change_detector import ChangeDetector
 from src.improve.failure_analyzer import AnalysisContext, FailureAnalyzer
 from src.improve.self_improver import SelfImprover
+from src.kb.cache_key import normalize_domain
 from src.kb.manager import KBManager
 from src.kb.maturity import MaturityTracker
 from src.llm.router import LLMRouter
@@ -98,7 +99,8 @@ class V4Orchestrator:
             page = await browser_adapter.get_page()
             url = page.url
         parsed = urlparse(url)
-        domain = parsed.netloc or parsed.hostname or "unknown"
+        raw_domain = parsed.netloc or parsed.hostname or "unknown"
+        domain = normalize_domain(raw_domain)
 
         logger.info("v4 run: domain=%s intent=%r", domain, intent[:80])
 

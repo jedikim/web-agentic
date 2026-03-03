@@ -5,6 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
+def normalize_domain(domain: str) -> str:
+    """Strip ``www.`` prefix so www.a.com and a.com share one KB entry."""
+    d = domain.lower().strip()
+    if d.startswith("www."):
+        d = d[4:]
+    return d
+
+
 @dataclass(frozen=True)
 class CacheKey:
     """Knowledge Base lookup key.

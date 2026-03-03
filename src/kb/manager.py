@@ -24,7 +24,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from src.kb.cache_key import CacheKey
+from src.kb.cache_key import CacheKey, normalize_domain
 from src.models.site_profile import SiteProfile
 
 logger = logging.getLogger(__name__)
@@ -54,10 +54,15 @@ class KBManager:
     def base_dir(self) -> Path:
         return self._base
 
+    @staticmethod
+    def _norm(domain: str) -> str:
+        return normalize_domain(domain)
+
     # ── Profile ──
 
     def load_profile(self, domain: str) -> SiteProfile | None:
         """Load current SiteProfile for a domain."""
+        domain = self._norm(domain)
         p = self._base / domain / "profile.json"
         if not p.exists():
             return None
@@ -74,7 +79,7 @@ class KBManager:
         Returns:
             New version number.
         """
-        domain_dir = self._base / profile.domain
+        domain_dir = self._base / self._norm(profile.domain)
         domain_dir.mkdir(parents=True, exist_ok=True)
 
         # Write current
@@ -102,6 +107,7 @@ class KBManager:
     # ── URL Patterns ──
 
     def _pattern_dir(self, domain: str, url_pattern: str) -> Path:
+        domain = self._norm(domain)
         key = CacheKey(domain=domain, url_pattern=url_pattern, artifact_type="")
         return self._base / domain / "url_patterns" / key.pattern_dir
 
@@ -283,6 +289,7 @@ class KBManager:
         self, domain: str, name: str, data: bytes
     ) -> Path:
         """Save a screenshot to the domain's screenshots directory."""
+        domain = self._norm(domain)
         ss_dir = self._base / domain / "screenshots"
         ss_dir.mkdir(parents=True, exist_ok=True)
         path = ss_dir / name
@@ -293,6 +300,7 @@ class KBManager:
 
     def append_run(self, domain: str, record: dict[str, Any]) -> None:
         """Append to runs.jsonl."""
+        domain = self._norm(domain)
         history_dir = self._base / domain / "history"
         history_dir.mkdir(parents=True, exist_ok=True)
         runs_file = history_dir / "runs.jsonl"
@@ -308,6 +316,7 @@ class KBManager:
         Returns:
             CacheLookupResult with hit/stage/artifacts.
         """
+        domain = self._norm(domain)
         profile = self.load_profile(domain)
         if not profile:
             return CacheLookupResult(hit=False, stage="cold", reason="no_profile")
@@ -347,6 +356,7 @@ class KBManager:
 
     def _match_url_pattern(self, domain: str, url: str) -> str | None:
         """Match a URL to registered patterns."""
+        domain = self._norm(domain)
         patterns_dir = self._base / domain / "url_patterns"
         if not patterns_dir.exists():
             return None
@@ -369,9 +379,15 @@ class KBManager:
         """Simple URL pattern matching.
 
         Supports * wildcard at the end of path segments or query values.
+        Root pattern "/" matches any URL on the same domain.
         """
         if not pattern:
             return False
+
+        # Root pattern matches everything (homepage / catch-all)
+        if pattern == "/":
+            return True
+
         # Normalize
         url_path = url.split("?")[0].rstrip("/")
         pat_path = pattern.split("?")[0].rstrip("/")
